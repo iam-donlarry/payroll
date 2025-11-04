@@ -1,0 +1,275 @@
+/* Custom Styles for Payroll HR System */
+
+/* Sidebar Styles */
+.sidebar {
+    min-height: 100vh;
+    background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
+    box-shadow: 0 0 15px rgba(0,0,0,0.1);
+}
+
+.sidebar .nav-link {
+    color: #ecf0f1;
+    padding: 15px 20px;
+    border-bottom: 1px solid #34495e;
+    transition: all 0.3s ease;
+    font-weight: 500;
+}
+
+.sidebar .nav-link:hover {
+    background: #34495e;
+    color: #3498db;
+    padding-left: 25px;
+}
+
+.sidebar .nav-link.active {
+    background: #3498db;
+    color: white;
+    border-left: 4px solid #2980b9;
+}
+
+/* Card Enhancements */
+.card {
+    border: none;
+    box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+    transition: all 0.3s;
+}
+
+.card:hover {
+    box-shadow: 0 0.5rem 2rem 0 rgba(58, 59, 69, 0.2);
+    transform: translateY(-2px);
+}
+
+.card-header {
+    background: white;
+    border-bottom: 1px solid #e3e6f0;
+    font-weight: 700;
+}
+
+/* Table Enhancements */
+.table th {
+    border-top: none;
+    font-weight: 700;
+    color: #4e73df;
+    background-color: #f8f9fc;
+}
+
+.table-hover tbody tr:hover {
+    background-color: #f8f9fc;
+}
+
+/* Button Enhancements */
+.btn {
+    border-radius: 0.35rem;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #4e73df 0%, #224abe 100%);
+    border: none;
+}
+
+.btn-primary:hover {
+    background: linear-gradient(135deg, #224abe 0%, #4e73df 100%);
+    transform: translateY(-1px);
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #1cc88a 0%, #13855c 100%);
+    border: none;
+}
+
+.btn-warning {
+    background: linear-gradient(135deg, #f6c23e 0%, #dda20a 100%);
+    border: none;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #e74a3b 0%, #be2617 100%);
+    border: none;
+}
+
+/* Badge Enhancements */
+.badge {
+    font-weight: 600;
+    padding: 0.5em 0.8em;
+}
+
+/* Form Enhancements */
+.form-control {
+    border: 1px solid #d1d3e2;
+    border-radius: 0.35rem;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.form-control:focus {
+    border-color: #4e73df;
+    box-shadow: 0 0 0 0.2rem rgba(78, 115, 223, 0.25);
+}
+
+.form-label {
+    font-weight: 600;
+    color: #5a5c69;
+    margin-bottom: 0.5rem;
+}
+
+/* Alert Enhancements */
+.alert {
+    border: none;
+    border-radius: 0.5rem;
+    font-weight: 500;
+}
+
+.alert-success {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    color: #155724;
+}
+
+.alert-danger {
+    background: linear-gradient(135deg, #f8d7da 0%, #f1b0b7 100%);
+    color: #721c24;
+}
+
+.alert-warning {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+    color: #856404;
+}
+
+.alert-info {
+    background: linear-gradient(135deg, #d1ecf1 0%, #b6effb 100%);
+    color: #0c5460;
+}
+
+/* Navigation Enhancements */
+.navbar-brand {
+    font-weight: 800;
+    font-size: 1.5rem;
+}
+
+.navbar-dark {
+    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%) !important;
+}
+
+/* Dashboard Specific Styles */
+.dashboard-page .stat-card {
+    transition: all 0.3s ease;
+    border-left: 4px solid transparent;
+}
+
+.dashboard-page .stat-card:hover {
+    transform: translateY(-3px);
+    border-left-color: #4e73df;
+}
+
+/* Login Page Styles */
+.login-container {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+}
+
+.login-card {
+    backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.95);
+}
+
+/* DataTables Customization */
+.dataTables_wrapper .dataTables_length,
+.dataTables_wrapper .dataTables_filter,
+.dataTables_wrapper .dataTables_info,
+.dataTables_wrapper .dataTables_paginate {
+    margin: 1rem 0;
+    font-size: 0.9rem;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button {
+    border: 1px solid #ddd;
+    margin-left: 2px;
+    border-radius: 0.35rem;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button.current {
+    background: #4e73df;
+    border-color: #4e73df;
+    color: white !important;
+}
+
+/* Custom Utilities */
+.text-primary { color: #4e73df !important; }
+.text-success { color: #1cc88a !important; }
+.text-warning { color: #f6c23e !important; }
+.text-danger { color: #e74a3b !important; }
+.text-info { color: #36b9cc !important; }
+
+.bg-primary { background-color: #4e73df !important; }
+.bg-success { background-color: #1cc88a !important; }
+.bg-warning { background-color: #f6c23e !important; }
+.bg-danger { background-color: #e74a3b !important; }
+.bg-info { background-color: #36b9cc !important; }
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        z-index: 1000;
+        width: 250px;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+    }
+    
+    .sidebar.show {
+        transform: translateX(0);
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+}
+
+/* Print Styles */
+@media print {
+    .navbar, .btn, .dataTables_length, .dataTables_filter, .dataTables_paginate {
+        display: none !important;
+    }
+    
+    .card {
+        border: 1px solid #ddd !important;
+        box-shadow: none !important;
+    }
+}
+
+/* Animation Classes */
+.fade-in {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.slide-in {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}

@@ -1,0 +1,35 @@
+RewriteEngine On
+
+# Redirect to HTTPS if not already
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Remove trailing slashes
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)/$ /$1 [L,R=301]
+
+# API routing
+RewriteRule ^api/([^/]+)/([^/]+)/?$ api/$1/$2.php [L,QSA]
+RewriteRule ^api/([^/]+)/?$ api/$1/index.php [L,QSA]
+
+# Frontend routing for pretty URLs
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ $1.php [L,QSA]
+
+# Security headers
+Header always set X-Content-Type-Options nosniff
+Header always set X-Frame-Options DENY
+Header always set X-XSS-Protection "1; mode=block"
+Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+# Prevent access to sensitive files
+<Files ~ "\.(env|log|sql)$">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files "config/database.php">
+    Order allow,deny
+    Deny from all
+</Files>
