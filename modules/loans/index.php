@@ -93,6 +93,22 @@ try {
     $message = '<div class="alert alert-danger">Error loading loans data.</div>';
 }
 
+// Initialize employees array
+$employees = []; 
+try {
+    // Get all employees for the dropdowns
+    $employees_query = "SELECT employee_id, first_name, last_name, employee_code 
+                        FROM employees 
+                        ORDER BY last_name, first_name";
+    $employees_stmt = $db->prepare($employees_query);
+    $employees_stmt->execute();
+    $employees = $employees_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+} catch (PDOException $e) {
+    error_log("Employees loading error: " . $e->getMessage());
+    // Optionally display an error message to the user
+}
+
 include '../../includes/header.php';
 ?>
 
@@ -523,7 +539,7 @@ $(document).ready(function() {
         const formData = $(this).serialize();
         
         $.ajax({
-            url: '/api/loans/apply',
+            url: '../../api/loans/apply.php',
             type: 'POST',
             data: formData,
             success: function(response) {
@@ -548,7 +564,7 @@ $(document).ready(function() {
         const formData = $(this).serialize();
         
         $.ajax({
-            url: '/api/loans/request_advance',
+            url: '../../api/loans/request_advance.php',
             type: 'POST',
             data: formData,
             success: function(response) {

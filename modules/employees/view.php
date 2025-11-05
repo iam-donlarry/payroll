@@ -192,6 +192,10 @@ include '../../includes/header.php';
                     <strong>State of Origin:</strong> <?php echo htmlspecialchars($employee['state_of_origin']); ?>
                 </div>
                 <?php endif; ?>
+
+                <div class="mb-3">
+                    <strong>LGA of Origin:</strong> <?php echo htmlspecialchars($employee['lga_of_origin']);?>
+                </div>
             </div>
         </div>
     </div>
@@ -306,21 +310,21 @@ include '../../includes/header.php';
                                 <td><strong><?php echo formatCurrency($total_allowances); ?></strong></td>
                                 <td colspan="3"></td>
                             </tr>
-                            <tr>
+                            <!--<tr>
                                 <td colspan="2"><strong>Total Deductions</strong></td>
                                 <td><strong><?php echo formatCurrency($total_deductions); ?></strong></td>
                                 <td colspan="3"></td>
-                            </tr>
+                            </tr>-->
                             <tr class="table-primary">
                                 <td colspan="2"><strong>Gross Salary</strong></td>
                                 <td><strong><?php echo formatCurrency($total_earnings + $total_allowances); ?></strong></td>
                                 <td colspan="3"></td>
                             </tr>
-                            <tr class="table-success">
+                            <!--<tr class="table-success">
                                 <td colspan="2"><strong>Net Salary</strong></td>
                                 <td><strong><?php echo formatCurrency(($total_earnings + $total_allowances) - $total_deductions); ?></strong></td>
                                 <td colspan="3"></td>
-                            </tr>
+                            </tr>-->
                         </tfoot>
                     </table>
                 </div>
