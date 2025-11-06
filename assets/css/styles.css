@@ -27,6 +27,45 @@
     border-left: 4px solid #2980b9;
 }
 
+/* Loan page */
+.loans-page .card {
+    border: none;
+    box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+}
+
+.loans-page .table th {
+    border-top: none;
+    font-weight: 600;
+    color: #6e707e;
+}
+
+.loans-page .btn-group-sm > .btn {
+    padding: 0.25rem 0.5rem;
+}
+
+.loans-page .nav-tabs .nav-link {
+    color: #6e707e;
+    font-weight: 600;
+}
+
+.loans-page .nav-tabs .nav-link.active {
+    color: #4e73df;
+    border-bottom: 2px solid #4e73df;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .loans-page .btn-group {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .loans-page .btn-group .btn {
+        margin-bottom: 0.25rem;
+        border-radius: 0.35rem !important;
+    }
+}
+
 /* Card Enhancements */
 .card {
     border: none;

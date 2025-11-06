@@ -129,27 +129,21 @@ function generatePayslipPDF($payroll_data) {
 }
 
 function getStatusBadge($status) {
-    $status = strtolower($status);
-    $badge_class = 'secondary';
+    $statuses = [
+        'pending' => 'warning',
+        'approved' => 'success',
+        'rejected' => 'danger',
+        'completed' => 'info',
+        'active' => 'primary',
+        'disbursed' => 'info',
+        'defaulted' => 'danger',
+        'paid' => 'success',
+        'overdue' => 'warning',
+        'partial' => 'warning'
+    ];
     
-    switch ($status) {
-        case 'active':
-        case 'completed':
-        case 'paid':
-            $badge_class = 'success';
-            break;
-        case 'pending':
-        case 'processing':
-            $badge_class = 'warning';
-            break;
-        case 'inactive':
-        case 'terminated':
-        case 'cancelled':
-            $badge_class = 'danger';
-            break;
-    }
-    
-    return '<span class="badge bg-' . $badge_class . '">' . ucfirst($status) . '</span>';
+    $color = $statuses[strtolower($status)] ?? 'secondary';
+    return '<span class="badge bg-' . $color . '">' . ucfirst($status) . '</span>';
 }
 
 function numberToWords($number) {
@@ -262,4 +256,86 @@ function numberToWords($number) {
 
     return ucfirst($string);
 }
-?>
+
+//helper functions for loan
+
+function calculateLoanRepayment($amount, $interest_rate, $tenure_months) {
+    $monthly_rate = $interest_rate / 100 / 12;
+    
+    if ($monthly_rate > 0) {
+        $monthly_repayment = ($amount * $monthly_rate * pow(1 + $monthly_rate, $tenure_months)) 
+                            / (pow(1 + $monthly_rate, $tenure_months) - 1);
+    } else {
+        $monthly_repayment = $amount / $tenure_months;
+    }
+    
+    $total_repayable = $monthly_repayment * $tenure_months;
+    $total_interest = $total_repayable - $amount;
+    
+    return [
+        'monthly_repayment' => round($monthly_repayment, 2),
+        'total_repayable' => round($total_repayable, 2),
+        'total_interest' => round($total_interest, 2)
+    ];
+}
+
+function createRepaymentSchedule($db, $loan_id, $calculation, $tenure_months) {
+    $monthly_repayment = $calculation['monthly_repayment'];
+    $total_principal = $calculation['total_repayable'] - $calculation['total_interest'];
+    $total_interest = $calculation['total_interest'];
+    
+    $principal_per_month = $total_principal / $tenure_months;
+    $interest_per_month = $total_interest / $tenure_months;
+    
+    for ($i = 1; $i <= $tenure_months; $i++) {
+        $due_date = date('Y-m-d', strtotime("+$i months"));
+        
+        $stmt = $db->prepare("INSERT INTO loan_repayments 
+                             (loan_id, installment_number, due_date, amount_due, 
+                              principal_amount, interest_amount, status) 
+                             VALUES (?, ?, ?, ?, ?, ?, 'pending')");
+        $stmt->execute([
+            $loan_id,
+            $i,
+            $due_date,
+            $monthly_repayment,
+            round($principal_per_month, 2),
+            round($interest_per_month, 2)
+        ]);
+    }
+}
+
+function getLoanDetails($db, $loan_id) {
+    try {
+        $stmt = $db->prepare("SELECT el.*, e.first_name, e.last_name, e.employee_code, 
+                                     lt.loan_name, lt.interest_rate,
+                                     CONCAT(approver.first_name, ' ', approver.last_name) as approver_name
+                              FROM employee_loans el
+                              JOIN employees e ON el.employee_id = e.employee_id
+                              JOIN loan_types lt ON el.loan_type_id = lt.loan_type_id
+                              LEFT JOIN employees approver ON el.approved_by = approver.employee_id
+                              WHERE el.loan_id = ?");
+        $stmt->execute([$loan_id]);
+        $loan = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$loan) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Loan not found']);
+            return;
+        }
+        
+        // Get repayment schedule
+        $stmt = $db->prepare("SELECT * FROM loan_repayments WHERE loan_id = ? ORDER BY installment_number");
+        $stmt->execute([$loan_id]);
+        $repayment_schedule = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        $loan['repayment_schedule'] = $repayment_schedule;
+        
+        echo json_encode(['success' => true, 'data' => $loan]);
+        
+    } catch (PDOException $e) {
+        error_log("Get Loan Details Error: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Database error']);
+    }
+}

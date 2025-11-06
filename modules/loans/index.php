@@ -16,39 +16,101 @@ $body_class = "loans-page";
 $action = $_GET['action'] ?? '';
 $message = '';
 
-if ($action === 'approve_loan' && isset($_GET['id'])) {
+// Handle loan approval/rejection
+if (isset($_GET['id'])) {
     $loan_id = (int)$_GET['id'];
     
-    try {
-        $query = "UPDATE employee_loans SET 
-                 status = 'approved',
-                 approval_date = CURDATE(),
-                 approved_by = :approved_by
-                 WHERE loan_id = :loan_id";
-        
-        $stmt = $db->prepare($query);
-        $stmt->bindValue(':loan_id', $loan_id, PDO::PARAM_INT);
-        $stmt->bindValue(':approved_by', $_SESSION['employee_id']);
-        $stmt->execute();
-        
-        $message = '<div class="alert alert-success">Loan approved successfully.</div>';
-    } catch (PDOException $e) {
-        $message = '<div class="alert alert-danger">Error approving loan: ' . $e->getMessage() . '</div>';
+    if ($action === 'approve_loan') {
+        try {
+            // First, get loan details for repayment calculation
+            $loan_query = "SELECT loan_amount, interest_rate, tenure_months FROM employee_loans WHERE loan_id = ?";
+            $loan_stmt = $db->prepare($loan_query);
+            $loan_stmt->execute([$loan_id]);
+            $loan_details = $loan_stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$loan_details) {
+                throw new Exception('Loan not found');
+            }
+            
+            // Calculate repayment schedule
+            $calculation = calculateLoanRepayment(
+                $loan_details['loan_amount'],
+                $loan_details['interest_rate'],
+                $loan_details['tenure_months']
+            );
+            
+            // Start transaction
+            $db->beginTransaction();
+            
+            // Update loan status
+            $update_query = "UPDATE employee_loans SET 
+                           status = 'approved',
+                           approval_date = CURDATE(),
+                           approved_by = :approved_by,
+                           disbursement_date = CURDATE(),
+                           start_repayment_date = DATE_ADD(CURDATE(), INTERVAL 1 MONTH),
+                           remaining_balance = :total_repayable
+                           WHERE loan_id = :loan_id AND status = 'pending'";
+            
+            $stmt = $db->prepare($update_query);
+            $stmt->bindValue(':loan_id', $loan_id, PDO::PARAM_INT);
+            $stmt->bindValue(':approved_by', $_SESSION['employee_id']);
+            $stmt->bindValue(':total_repayable', $calculation['total_repayable']);
+            
+            if ($stmt->execute()) {
+                if ($stmt->rowCount() > 0) {
+                    // Create repayment schedule only after approval
+                    createRepaymentSchedule($db, $loan_id, $calculation, $loan_details['tenure_months']);
+                    
+                    $db->commit();
+                    $message = '<div class="alert alert-success">Loan approved successfully. Repayment schedule created.</div>';
+                } else {
+                    $db->rollBack();
+                    $message = '<div class="alert alert-warning">Loan could not be approved. It may have already been processed.</div>';
+                }
+            } else {
+                $db->rollBack();
+                throw new Exception('Failed to execute update query');
+            }
+        } catch (PDOException $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            error_log("Approve loan error: " . $e->getMessage());
+            $message = '<div class="alert alert-danger">Error approving loan: ' . $e->getMessage() . '</div>';
+        } catch (Exception $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            error_log("Approve loan error: " . $e->getMessage());
+            $message = '<div class="alert alert-danger">Error: ' . $e->getMessage() . '</div>';
+        }
     }
-}
 
-if ($action === 'reject_loan' && isset($_GET['id'])) {
-    $loan_id = (int)$_GET['id'];
-    
-    try {
-        $query = "UPDATE employee_loans SET status = 'rejected' WHERE loan_id = :loan_id";
-        $stmt = $db->prepare($query);
-        $stmt->bindValue(':loan_id', $loan_id, PDO::PARAM_INT);
-        $stmt->execute();
-        
-        $message = '<div class="alert alert-success">Loan rejected successfully.</div>';
-    } catch (PDOException $e) {
-        $message = '<div class="alert alert-danger">Error rejecting loan: ' . $e->getMessage() . '</div>';
+    if ($action === 'reject_loan') {
+        try {
+            $query = "UPDATE employee_loans SET 
+                     status = 'rejected',
+                     approved_by = :approved_by
+                     WHERE loan_id = :loan_id AND status = 'pending'";
+            
+            $stmt = $db->prepare($query);
+            $stmt->bindValue(':loan_id', $loan_id, PDO::PARAM_INT);
+            $stmt->bindValue(':approved_by', $_SESSION['employee_id']);
+            
+            if ($stmt->execute()) {
+                if ($stmt->rowCount() > 0) {
+                    $message = '<div class="alert alert-success">Loan rejected successfully.</div>';
+                } else {
+                    $message = '<div class="alert alert-warning">Loan could not be rejected. It may have already been processed.</div>';
+                }
+            } else {
+                throw new Exception('Failed to execute query');
+            }
+        } catch (PDOException $e) {
+            error_log("Reject loan error: " . $e->getMessage());
+            $message = '<div class="alert alert-danger">Error rejecting loan: ' . $e->getMessage() . '</div>';
+        }
     }
 }
 
@@ -361,72 +423,108 @@ include '../../includes/header.php';
 <div class="modal fade" id="applyLoanModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Apply for Loan</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">Apply for a Loan</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form id="applyLoanForm">
+            <form id="loanApplicationForm">
                 <div class="modal-body">
-                    <div class="row">
+                    <div id="loanFormAlert" class="alert d-none"></div>
+                    
+                    <div class="row mb-3">
                         <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">Employee *</label>
-                                <select class="form-control" name="employee_id" required>
-                                    <option value="">Select Employee</option>
-                                    <?php foreach ($employees as $emp): ?>
-                                    <option value="<?php echo $emp['employee_id']; ?>">
-                                        <?php echo htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name'] . ' (' . $emp['employee_code'] . ')'); ?>
+                            <label class="form-label">Loan Type <span class="text-danger">*</span></label>
+                            <select class="form-select" id="loanType" name="loan_type_id" required>
+                                <option value="">-- Select Loan Type --</option>
+                                <?php foreach ($loan_types as $type): ?>
+                                    <option value="<?php echo $type['loan_type_id']; ?>" 
+                                            data-max-amount="<?php echo $type['max_amount'] ?? ''; ?>"
+                                            data-max-tenure="<?php echo $type['max_tenure_months'] ?? ''; ?>">
+                                        <?php echo htmlspecialchars($type['loan_name'] . ' (' . $type['interest_rate'] . '%' . 
+                                            ($type['max_amount'] ? ' - Max: ' . formatCurrency($type['max_amount']) : '') . ')'); ?>
                                     </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
                         <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">Loan Type *</label>
-                                <select class="form-control" name="loan_type_id" required>
-                                    <option value="">Select Loan Type</option>
-                                    <?php foreach ($loan_types as $type): ?>
-                                    <option value="<?php echo $type['loan_type_id']; ?>" 
-                                            data-rate="<?php echo $type['interest_rate']; ?>"
-                                            data-max="<?php echo $type['max_amount']; ?>"
-                                            data-tenure="<?php echo $type['max_tenure_months']; ?>">
-                                        <?php echo htmlspecialchars($type['loan_name']); ?> (<?php echo $type['interest_rate']; ?>%)
-                                    </option>
+                            <label class="form-label">Employee <span class="text-danger">*</span></label>
+                            <select class="form-select" id="employeeId" name="employee_id" <?php echo $auth->hasPermission('admin') ? '' : 'disabled'; ?> required>
+                                <?php if ($auth->hasPermission('admin')): ?>
+                                    <?php foreach ($employees as $emp): ?>
+                                        <option value="<?php echo $emp['employee_id']; ?>" 
+                                                <?php echo ($emp['employee_id'] == ($_SESSION['employee_id'] ?? 0)) ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name'] . ' (' . $emp['employee_code'] . ')'); ?>
+                                        </option>
                                     <?php endforeach; ?>
-                                </select>
-                            </div>
+                                <?php else: ?>
+                                    <option value="<?php echo $_SESSION['employee_id']; ?>">
+                                        <?php echo htmlspecialchars($_SESSION['first_name'] . ' ' . $_SESSION['last_name'] . ' (' . $_SESSION['employee_code'] . ')'); ?>
+                                    </option>
+                                <?php endif; ?>
+                            </select>
                         </div>
                     </div>
                     
-                    <div class="row">
+                    <div class="row mb-3">
                         <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">Loan Amount (₦) *</label>
-                                <input type="number" class="form-control" name="loan_amount" step="0.01" min="0" required>
+                            <label class="form-label">Loan Amount (₦) <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text">₦</span>
+                                <input type="number" class="form-control" id="loanAmount" name="loan_amount" 
+                                       min="1000" step="1000" required>
                             </div>
+                            <small class="text-muted" id="maxAmountHint"></small>
                         </div>
                         <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">Tenure (Months) *</label>
-                                <input type="number" class="form-control" name="tenure_months" min="1" max="36" required>
-                            </div>
+                            <label class="form-label">Repayment Period (Months) <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="repaymentPeriod" name="tenure_months" 
+                                   min="1" max="36" value="12" required>
+                            <small class="text-muted" id="maxTenureHint"></small>
                         </div>
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Purpose</label>
-                        <textarea class="form-control" name="purpose" rows="3" placeholder="Briefly describe the purpose of this loan..."></textarea>
+                        <label class="form-label">Purpose <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="purpose" name="purpose" rows="3" required 
+                                  placeholder="Please specify the purpose of this loan"></textarea>
                     </div>
                     
-                    <div class="alert alert-info">
-                        <i class="fas fa-calculator me-2"></i>
-                        <span id="loanCalculation">Loan details will be calculated upon selection</span>
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">Loan Summary</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-2">
+                                        <small class="text-muted">Interest Rate:</small>
+                                        <div id="interestRateDisplay" class="fw-bold">-</div>
+                                    </div>
+                                    <div class="mb-2">
+                                        <small class="text-muted">Monthly Payment:</small>
+                                        <div id="monthlyPayment" class="fw-bold">-</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-2">
+                                        <small class="text-muted">Total Interest:</small>
+                                        <div id="totalInterest" class="fw-bold">-</div>
+                                    </div>
+                                    <div class="mb-2">
+                                        <small class="text-muted">Total Repayable:</small>
+                                        <div id="totalRepayable" class="fw-bold">-</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="submit" class="btn btn-primary">Apply for Loan</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="submitLoanBtn">
+                        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                        Submit Application
+                    </button>
                 </div>
             </form>
         </div>
@@ -490,123 +588,583 @@ include '../../includes/header.php';
         </div>
     </div>
 </div>
-
+<?php include '../../includes/footer.php'; ?>
 <script>
 $(document).ready(function() {
     // Initialize DataTables
-    $('#loansTable, #advancesTable, #repaymentsTable').DataTable({
+    const loansTable = $('#loansTable').DataTable({
+        responsive: true,
         pageLength: 25,
-        order: [[6, 'desc']]
+        order: [[6, 'desc']],
+        dom: '<"d-flex justify-content-between align-items-center mb-3"f<"ms-3"l>>rtip'
     });
 
-    // Loan calculation
-    $('select[name="loan_type_id"], input[name="loan_amount"], input[name="tenure_months"]').on('change', function() {
+    const advancesTable = $('#advancesTable').DataTable({
+        responsive: true,
+        pageLength: 25,
+        order: [[2, 'desc']],
+        dom: '<"d-flex justify-content-between align-items-center mb-3"f<"ms-3"l>>rtip'
+    });
+
+    const repaymentsTable = $('#repaymentsTable').DataTable({
+        responsive: true,
+        pageLength: 25,
+        order: [[3, 'desc']],
+        dom: '<"d-flex justify-content-between align-items-center mb-3"f<"ms-3"l>>rtip'
+    });
+
+    // Loan type change handler
+    $('#loanType').on('change', function() {
+        updateLoanHints();
         calculateLoan();
     });
 
-    function calculateLoan() {
-        const loanType = $('select[name="loan_type_id"]');
-        const amount = parseFloat($('input[name="loan_amount"]').val()) || 0;
-        const tenure = parseInt($('input[name="tenure_months"]').val()) || 0;
-        const rate = parseFloat(loanType.find('option:selected').data('rate')) || 0;
-        const maxAmount = parseFloat(loanType.find('option:selected').data('max')) || 0;
-        const maxTenure = parseInt(loanType.find('option:selected').data('tenure')) || 0;
+    // Loan amount and tenure change handlers
+    $('#loanAmount, #repaymentPeriod').on('input', function() {
+        calculateLoan();
+    });
 
-        if (amount && tenure && rate) {
-            // Simple interest calculation for demonstration
-            const totalInterest = (amount * rate * tenure) / 100;
-            const totalRepayable = amount + totalInterest;
-            const monthlyPayment = totalRepayable / tenure;
-
-            $('#loanCalculation').html(
-                `Monthly Payment: ₦${monthlyPayment.toFixed(2)} | Total Repayable: ₦${totalRepayable.toFixed(2)} | Total Interest: ₦${totalInterest.toFixed(2)}`
-            );
-
-            // Validate against limits
-            if (maxAmount && amount > maxAmount) {
-                $('#loanCalculation').append(`<br><span class="text-danger">Amount exceeds maximum of ₦${maxAmount.toFixed(2)} for this loan type.</span>`);
-            }
-            if (maxTenure && tenure > maxTenure) {
-                $('#loanCalculation').append(`<br><span class="text-danger">Tenure exceeds maximum of ${maxTenure} months for this loan type.</span>`);
-            }
+    // Update loan hints based on selected loan type
+    function updateLoanHints() {
+        const selectedOption = $('#loanType option:selected');
+        const maxAmount = selectedOption.data('max-amount');
+        const maxTenure = selectedOption.data('max-tenure');
+        
+        if (maxAmount) {
+            $('#maxAmountHint').text(`Maximum: ₦${parseFloat(maxAmount).toLocaleString()}`);
+            $('#loanAmount').attr('max', maxAmount);
+        } else {
+            $('#maxAmountHint').text('No maximum limit');
+            $('#loanAmount').removeAttr('max');
+        }
+        
+        if (maxTenure) {
+            $('#maxTenureHint').text(`Maximum: ${maxTenure} months`);
+            $('#repaymentPeriod').attr('max', maxTenure);
+        } else {
+            $('#maxTenureHint').text('No maximum limit');
+            $('#repaymentPeriod').removeAttr('max');
+        }
+        
+        // Update interest rate display
+        const loanText = selectedOption.text();
+        const rateMatch = loanText.match(/\(([\d.]+)%/);
+        if (rateMatch) {
+            $('#interestRateDisplay').text(rateMatch[1] + '%');
         }
     }
 
-    // Apply Loan Form
-    $('#applyLoanForm').on('submit', function(e) {
-        e.preventDefault();
-        
-        const formData = $(this).serialize();
-        
-        $.ajax({
-            url: '../../api/loans/apply.php',
-            type: 'POST',
-            data: formData,
-            success: function(response) {
-                if (response.success) {
-                    alert('Loan application submitted successfully!');
-                    $('#applyLoanModal').modal('hide');
-                    location.reload();
-                } else {
-                    alert('Error: ' + response.message);
-                }
-            },
-            error: function() {
-                alert('Error submitting loan application');
-            }
-        });
-    });
+    // Calculate loan details
+    function calculateLoan() {
+        const amount = parseFloat($('#loanAmount').val()) || 0;
+        const tenure = parseInt($('#repaymentPeriod').val()) || 0;
+        const selectedOption = $('#loanType option:selected');
+        const loanText = selectedOption.text();
+        const rateMatch = loanText.match(/\(([\d.]+)%/);
+        const rate = rateMatch ? parseFloat(rateMatch[1]) : 0;
 
-    // Request Advance Form
-    $('#requestAdvanceForm').on('submit', function(e) {
-        e.preventDefault();
-        
-        const formData = $(this).serialize();
-        
-        $.ajax({
-            url: '../../api/loans/request_advance.php',
-            type: 'POST',
-            data: formData,
-            success: function(response) {
-                if (response.success) {
-                    alert('Salary advance requested successfully!');
-                    $('#requestAdvanceModal').modal('hide');
-                    location.reload();
-                } else {
-                    alert('Error: ' + response.message);
-                }
-            },
-            error: function() {
-                alert('Error requesting salary advance');
-            }
-        });
-    });
-
-    // Mark repayment as paid
-    $('.mark-paid').on('click', function() {
-        const repaymentId = $(this).data('id');
-        const amountDue = $(this).data('amount');
-        
-        if (confirm(`Mark this repayment of ₦${amountDue} as paid?`)) {
+        if (amount > 0 && tenure > 0 && rate > 0) {
+            // Try API calculation first
             $.ajax({
-                url: '/api/loans/mark_repayment_paid',
+                url: '../../api/loans/calculate.php',
                 type: 'POST',
-                data: { repayment_id: repaymentId },
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    amount: amount,
+                    interest_rate: rate,
+                    tenure_months: tenure
+                }),
                 success: function(response) {
                     if (response.success) {
-                        alert('Repayment marked as paid!');
-                        location.reload();
+                        updateLoanSummary(response);
                     } else {
-                        alert('Error: ' + response.message);
+                        calculateClientSide(amount, rate, tenure);
                     }
                 },
                 error: function() {
-                    alert('Error updating repayment');
+                    calculateClientSide(amount, rate, tenure);
+                }
+            });
+        } else {
+            resetSummary();
+        }
+    }
+
+    // Client-side calculation fallback
+    function calculateClientSide(amount, rate, tenure) {
+        const calculation = calculateLoanRepayment(amount, rate, tenure);
+        updateLoanSummary(calculation);
+    }
+
+    // Client-side calculation function
+    function calculateLoanRepayment(amount, interest_rate, tenure_months) {
+        const monthly_rate = interest_rate / 100 / 12;
+        let monthly_repayment;
+        
+        if (monthly_rate > 0) {
+            monthly_repayment = (amount * monthly_rate * Math.pow(1 + monthly_rate, tenure_months)) 
+                              / (Math.pow(1 + monthly_rate, tenure_months) - 1);
+        } else {
+            monthly_repayment = amount / tenure_months;
+        }
+        
+        const total_repayable = monthly_repayment * tenure_months;
+        const total_interest = total_repayable - amount;
+        
+        return {
+            monthly_repayment: Math.round(monthly_repayment * 100) / 100,
+            total_repayable: Math.round(total_repayable * 100) / 100,
+            total_interest: Math.round(total_interest * 100) / 100
+        };
+    }
+
+    // Update loan summary display
+    function updateLoanSummary(calculation) {
+        $('#monthlyPayment').text('₦' + calculation.monthly_repayment.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }));
+        
+        $('#totalInterest').text('₦' + calculation.total_interest.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }));
+        
+        $('#totalRepayable').text('₦' + calculation.total_repayable.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }));
+    }
+
+    // Reset summary
+    function resetSummary() {
+        $('#monthlyPayment').text('-');
+        $('#totalInterest').text('-');
+        $('#totalRepayable').text('-');
+    }
+
+    // Show alert
+    function showAlert(message, type = 'info', container = '#loanFormAlert') {
+        const alertDiv = $(container);
+        alertDiv.removeClass('d-none alert-success alert-danger alert-warning alert-info')
+               .addClass(`alert-${type} show`)
+               .html(message);
+    }
+
+    // Hide alert
+    function hideAlert(container = '#loanFormAlert') {
+        $(container).addClass('d-none').removeClass('show');
+    }
+
+    // Loan application form submission
+    $('#loanApplicationForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        const form = $(this);
+        const submitBtn = form.find('button[type="submit"]');
+        const spinner = submitBtn.find('.spinner-border');
+        
+        // Show loading state
+        submitBtn.prop('disabled', true);
+        spinner.removeClass('d-none');
+        hideAlert();
+        
+        // Get form data
+        const formData = {
+            loan_type_id: $('#loanType').val(),
+            employee_id: $('#employeeId').val(),
+            loan_amount: parseFloat($('#loanAmount').val()),
+            tenure_months: parseInt($('#repaymentPeriod').val()),
+            purpose: $('#purpose').val()
+        };
+        
+        // Validation
+        if (!formData.loan_type_id || !formData.employee_id || !formData.loan_amount || !formData.tenure_months || !formData.purpose) {
+            showAlert('Please fill in all required fields.', 'danger');
+            submitBtn.prop('disabled', false);
+            spinner.addClass('d-none');
+            return;
+        }
+        
+        if (formData.loan_amount <= 0) {
+            showAlert('Please enter a valid loan amount.', 'danger');
+            submitBtn.prop('disabled', false);
+            spinner.addClass('d-none');
+            return;
+        }
+        
+        // Submit via API
+        $.ajax({
+            url: '../../api/loans/index.php',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.success) {
+                    showAlert('Loan application submitted successfully!', 'success');
+                    form[0].reset();
+                    resetSummary();
+                    $('#applyLoanModal').modal('hide');
+                    
+                    // Reload page after delay
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    showAlert(response.message || 'Error submitting loan application.', 'danger');
+                }
+            },
+            error: function(xhr) {
+                let errorMessage = 'An error occurred while processing your request.';
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.message || errorMessage;
+                } catch (e) {
+                    // Use default error message
+                }
+                showAlert(errorMessage, 'danger');
+            },
+            complete: function() {
+                submitBtn.prop('disabled', false);
+                spinner.addClass('d-none');
+            }
+        });
+    });
+
+    // Salary advance form submission
+    $('#requestAdvanceForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        const form = $(this);
+        const submitBtn = form.find('button[type="submit"]');
+        
+        // Show loading state
+        const originalBtnText = submitBtn.html();
+        submitBtn.prop('disabled', true).html(`
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            Processing...
+        `);
+        
+        hideAlert('#advanceFormAlert');
+        
+        // Get form data
+        const formData = {
+            employee_id: form.find('[name="employee_id"]').val(),
+            advance_amount: parseFloat(form.find('[name="advance_amount"]').val()),
+            repayment_period_months: parseInt(form.find('[name="repayment_period_months"]').val()),
+            reason: form.find('[name="reason"]').val()
+        };
+        
+        // Validation
+        if (!formData.employee_id || !formData.advance_amount || !formData.repayment_period_months || !formData.reason) {
+            showAlert('Please fill in all required fields.', 'danger', '#advanceFormAlert');
+            submitBtn.prop('disabled', false).html(originalBtnText);
+            return;
+        }
+        
+        if (formData.advance_amount <= 0) {
+            showAlert('Please enter a valid advance amount.', 'danger', '#advanceFormAlert');
+            submitBtn.prop('disabled', false).html(originalBtnText);
+            return;
+        }
+        
+        // Submit via API
+        $.ajax({
+            url: '../../api/loans/advances.php',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.success) {
+                    showAlert('Salary advance requested successfully!', 'success', '#advanceFormAlert');
+                    form[0].reset();
+                    $('#requestAdvanceModal').modal('hide');
+                    
+                    // Reload page after delay
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    showAlert(response.message || 'Error requesting salary advance.', 'danger', '#advanceFormAlert');
+                }
+            },
+            error: function(xhr) {
+                let errorMessage = 'An error occurred while processing your request.';
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.message || errorMessage;
+                } catch (e) {
+                    // Use default error message
+                }
+                showAlert(errorMessage, 'danger', '#advanceFormAlert');
+            },
+            complete: function() {
+                submitBtn.prop('disabled', false).html(originalBtnText);
+            }
+        });
+    });
+
+    // Approve loan
+    $(document).on('click', '.approve-loan', function() {
+        const loanId = $(this).data('id');
+        if (confirm('Are you sure you want to approve this loan?')) {
+            updateLoanStatus(loanId, 'approved');
+        }
+    });
+
+    // Reject loan
+    $(document).on('click', '.reject-loan', function() {
+        const loanId = $(this).data('id');
+        if (confirm('Are you sure you want to reject this loan?')) {
+            updateLoanStatus(loanId, 'rejected');
+        }
+    });
+
+    // Update loan status
+    function updateLoanStatus(loanId, status) {
+        $.ajax({
+            url: `../../api/loans/index.php?id=${loanId}`,
+            type: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify({ status: status }),
+            success: function(response) {
+                if (response.success) {
+                    alert('Loan status updated successfully!');
+                    window.location.reload();
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr) {
+                let errorMessage = 'An error occurred while processing your request.';
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.message || errorMessage;
+                } catch (e) {
+                    // Use default error message
+                }
+                alert('Error: ' + errorMessage);
+            }
+        });
+    }
+
+    // Mark repayment as paid
+    $(document).on('click', '.mark-paid', function() {
+        const button = $(this);
+        const repaymentId = button.data('id');
+        const amount = button.data('amount');
+        
+        if (confirm(`Mark this repayment of ₦${amount.toLocaleString()} as paid?`)) {
+            // Show loading state
+            const originalHtml = button.html();
+            button.prop('disabled', true).html(`
+                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                Processing...
+            `);
+            
+            // Update repayment
+            $.ajax({
+                url: `../../api/loans/repayments.php?id=${repaymentId}`,
+                type: 'PUT',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    amount_paid: amount,
+                    payment_date: new Date().toISOString().split('T')[0]
+                }),
+                success: function(response) {
+                    if (response.success) {
+                        window.location.reload();
+                    } else {
+                        alert(response.message || 'Error updating repayment status.');
+                        button.prop('disabled', false).html(originalHtml);
+                    }
+                },
+                error: function(xhr) {
+                    let errorMessage = 'An error occurred while processing your request.';
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        errorMessage = response.message || errorMessage;
+                    } catch (e) {
+                        // Use default error message
+                    }
+                    alert(errorMessage);
+                    button.prop('disabled', false).html(originalHtml);
                 }
             });
         }
     });
+
+    // View loan details
+    $(document).on('click', '.view-loan', function() {
+        const loanId = $(this).data('id');
+        loadLoanDetails(loanId);
+    });
+
+    // Load loan details
+    function loadLoanDetails(loanId) {
+        const modal = $('#loanDetailsModal');
+        modal.find('.modal-body').html(`
+            <div class="text-center my-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading loan details...</p>
+            </div>
+        `);
+        modal.modal('show');
+        
+        $.getJSON(`../../api/loans/index.php?id=${loanId}`, function(response) {
+            if (response.success) {
+                const loan = response.data;
+                renderLoanDetails(loan);
+            } else {
+                modal.find('.modal-body').html(`
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Error loading loan details: ${response.message}
+                    </div>
+                `);
+            }
+        }).fail(function() {
+            modal.find('.modal-body').html(`
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    Failed to load loan details. Please try again.
+                </div>
+            `);
+        });
+    }
+
+    // Render loan details
+    function renderLoanDetails(loan) {
+        const modal = $('#loanDetailsModal');
+        let html = `
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <small class="text-muted">Loan ID:</small>
+                        <div class="fw-bold">#${loan.loan_id}</div>
+                    </div>
+                    <div class="mb-3">
+                        <small class="text-muted">Employee:</small>
+                        <div class="fw-bold">${loan.first_name} ${loan.last_name}</div>
+                    </div>
+                    <div class="mb-3">
+                        <small class="text-muted">Employee Code:</small>
+                        <div class="fw-bold">${loan.employee_code}</div>
+                    </div>
+                    <div class="mb-3">
+                        <small class="text-muted">Loan Type:</small>
+                        <div class="fw-bold">${loan.loan_name}</div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <small class="text-muted">Loan Amount:</small>
+                        <div class="fw-bold">₦${parseFloat(loan.loan_amount).toLocaleString()}</div>
+                    </div>
+                    <div class="mb-3">
+                        <small class="text-muted">Interest Rate:</small>
+                        <div class="fw-bold">${loan.interest_rate}%</div>
+                    </div>
+                    <div class="mb-3">
+                        <small class="text-muted">Tenure:</small>
+                        <div class="fw-bold">${loan.tenure_months} months</div>
+                    </div>
+                    <div class="mb-3">
+                        <small class="text-muted">Status:</small>
+                        <div>${getStatusBadgeHtml(loan.status)}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row mt-4">
+                <div class="col-12">
+                    <h6 class="border-bottom pb-2">Repayment Schedule</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Due Date</th>
+                                    <th>Principal</th>
+                                    <th>Interest</th>
+                                    <th>Total Due</th>
+                                    <th>Paid Date</th>
+                                    <th>Amount Paid</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+        `;
+        
+        if (loan.repayment_schedule && loan.repayment_schedule.length > 0) {
+            loan.repayment_schedule.forEach(payment => {
+                html += `
+                    <tr>
+                        <td>${payment.installment_number}</td>
+                        <td>${formatDate(payment.due_date)}</td>
+                        <td>₦${parseFloat(payment.principal_amount).toLocaleString()}</td>
+                        <td>₦${parseFloat(payment.interest_amount).toLocaleString()}</td>
+                        <td>₦${parseFloat(payment.amount_due).toLocaleString()}</td>
+                        <td>${payment.paid_date ? formatDate(payment.paid_date) : '-'}</td>
+                        <td>${payment.amount_paid ? '₦' + parseFloat(payment.amount_paid).toLocaleString() : '-'}</td>
+                        <td>${getStatusBadgeHtml(payment.status)}</td>
+                    </tr>
+                `;
+            });
+        } else {
+            html += `
+                <tr>
+                    <td colspan="8" class="text-center py-4 text-muted">
+                        No repayment schedule available.
+                    </td>
+                </tr>
+            `;
+        }
+        
+        html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        modal.find('.modal-body').html(html);
+    }
+
+    // Helper function for status badges
+    function getStatusBadgeHtml(status) {
+        const statuses = {
+            'pending': 'warning',
+            'approved': 'success',
+            'rejected': 'danger',
+            'completed': 'info',
+            'active': 'primary',
+            'disbursed': 'info',
+            'defaulted': 'danger',
+            'paid': 'success',
+            'overdue': 'warning',
+            'partial': 'warning'
+        };
+        
+        const color = statuses[status.toLowerCase()] || 'secondary';
+        return `<span class="badge bg-${color}">${status.charAt(0).toUpperCase() + status.slice(1)}</span>`;
+    }
+
+    // Helper function for date formatting
+    function formatDate(dateString) {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    }
+
+    // Initialize tooltips
+    $('[data-bs-toggle="tooltip"]').tooltip();
 });
 </script>
-
-<?php include '../../includes/footer.php'; ?>
