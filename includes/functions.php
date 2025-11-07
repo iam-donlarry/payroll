@@ -259,37 +259,23 @@ function numberToWords($number) {
 
 //helper functions for loan
 
-function calculateLoanRepayment($amount, $interest_rate, $tenure_months) {
-    $monthly_rate = $interest_rate / 100 / 12;
-    
-    if ($monthly_rate > 0) {
-        $monthly_repayment = ($amount * $monthly_rate * pow(1 + $monthly_rate, $tenure_months)) 
-                            / (pow(1 + $monthly_rate, $tenure_months) - 1);
-    } else {
-        $monthly_repayment = $amount / $tenure_months;
-    }
-    
-    $total_repayable = $monthly_repayment * $tenure_months;
-    $total_interest = $total_repayable - $amount;
-    
+// [REPLACE] calculateLoanRepayment
+function calculateLoanRepayment($amount, $tenure_months) {
+    $monthly_repayment = $amount / $tenure_months;
+    $total_repayable = $amount;
+    $total_interest = 0;
     return [
         'monthly_repayment' => round($monthly_repayment, 2),
         'total_repayable' => round($total_repayable, 2),
-        'total_interest' => round($total_interest, 2)
+        'total_interest' => 0
     ];
 }
 
+// [REPLACE] createRepaymentSchedule
 function createRepaymentSchedule($db, $loan_id, $calculation, $tenure_months) {
     $monthly_repayment = $calculation['monthly_repayment'];
-    $total_principal = $calculation['total_repayable'] - $calculation['total_interest'];
-    $total_interest = $calculation['total_interest'];
-    
-    $principal_per_month = $total_principal / $tenure_months;
-    $interest_per_month = $total_interest / $tenure_months;
-    
     for ($i = 1; $i <= $tenure_months; $i++) {
         $due_date = date('Y-m-d', strtotime("+$i months"));
-        
         $stmt = $db->prepare("INSERT INTO loan_repayments 
                              (loan_id, installment_number, due_date, amount_due, 
                               principal_amount, interest_amount, status) 
@@ -299,8 +285,8 @@ function createRepaymentSchedule($db, $loan_id, $calculation, $tenure_months) {
             $i,
             $due_date,
             $monthly_repayment,
-            round($principal_per_month, 2),
-            round($interest_per_month, 2)
+            round($monthly_repayment, 2), // all principal
+            0 // interest is always 0
         ]);
     }
 }

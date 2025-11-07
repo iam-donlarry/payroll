@@ -100,8 +100,8 @@ function applyForLoan($db, $auth) {
     }
     
     try {
-        // Get loan type details
-        $stmt = $db->prepare("SELECT * FROM loan_types WHERE loan_type_id = ? AND is_active = 1");
+        // Get loan type details (we still fetch it to validate, but ignore interest)
+        $stmt = $db->prepare("SELECT loan_type_id, loan_name FROM loan_types WHERE loan_type_id = ? AND is_active = 1");
         $stmt->execute([$input['loan_type_id']]);
         $loan_type = $stmt->fetch(PDO::FETCH_ASSOC);
         
@@ -122,28 +122,36 @@ function applyForLoan($db, $auth) {
             return;
         }
         
-        // Calculate loan details
+        // Force 0% interest
         $loan_amount = floatval($input['loan_amount']);
-        $interest_rate = floatval($loan_type['interest_rate']);
         $tenure_months = intval($input['tenure_months']);
         
-        $calculation = calculateLoanRepayment($loan_amount, $interest_rate, $tenure_months);
-        
-        // Insert loan application
+        if ($tenure_months <= 0 || $loan_amount <= 0) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Loan amount and tenure must be positive']);
+            return;
+        }
+
+        $monthly_repayment = round($loan_amount / $tenure_months, 2);
+        $total_repayable = round($monthly_repayment * $tenure_months, 2);
+        // Recalculate to avoid floating point drift
+        $total_repayable = $loan_amount; // since no interest
+        $monthly_repayment = round($loan_amount / $tenure_months, 2);
+
+        // Insert loan application with 0% interest
         $stmt = $db->prepare("INSERT INTO employee_loans 
                              (employee_id, loan_type_id, loan_amount, interest_rate, tenure_months, 
                               monthly_repayment, total_repayable_amount, remaining_balance, purpose, application_date) 
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())");
+                             VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, CURDATE())");
         
         $result = $stmt->execute([
             $input['employee_id'],
             $input['loan_type_id'],
             $loan_amount,
-            $interest_rate,
             $tenure_months,
-            $calculation['monthly_repayment'],
-            $calculation['total_repayable'],
-            $calculation['total_repayable'], // initial remaining balance
+            $monthly_repayment,
+            $total_repayable,
+            $total_repayable,
             $input['purpose']
         ]);
         
@@ -157,7 +165,11 @@ function applyForLoan($db, $auth) {
             'success' => true,
             'message' => 'Loan application submitted successfully',
             'loan_id' => $loan_id,
-            'calculation' => $calculation
+            'calculation' => [
+                'monthly_repayment' => $monthly_repayment,
+                'total_repayable' => $total_repayable,
+                'total_interest' => 0
+            ]
         ]);
         
     } catch (PDOException $e) {
@@ -170,6 +182,40 @@ function applyForLoan($db, $auth) {
     }
 }
 
+/*function getLoanDetails($db, $loan_id) {
+    try {
+        $stmt = $db->prepare("SELECT el.*, e.first_name, e.last_name, e.employee_code, 
+                                     lt.loan_name, lt.interest_rate,
+                                     CONCAT(approver.first_name, ' ', approver.last_name) as approver_name
+                              FROM employee_loans el
+                              JOIN employees e ON el.employee_id = e.employee_id
+                              JOIN loan_types lt ON el.loan_type_id = lt.loan_type_id
+                              LEFT JOIN employees approver ON el.approved_by = approver.employee_id
+                              WHERE el.loan_id = ?");
+        $stmt->execute([$loan_id]);
+        $loan = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$loan) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Loan not found']);
+            return;
+        }
+        
+        // Get repayment schedule
+        $stmt = $db->prepare("SELECT * FROM loan_repayments WHERE loan_id = ? ORDER BY installment_number");
+        $stmt->execute([$loan_id]);
+        $repayment_schedule = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        $loan['repayment_schedule'] = $repayment_schedule;
+        
+        echo json_encode(['success' => true, 'data' => $loan]);
+        
+    } catch (PDOException $e) {
+        error_log("Get Loan Details Error: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Database error']);
+    }
+}*/
 
 function listLoans($db) {
     try {
@@ -232,5 +278,4 @@ function updateLoanStatus($db, $loan_id, $auth, $data) {
         echo json_encode(['success' => false, 'message' => 'Database error']);
     }
 }
-
 ?>

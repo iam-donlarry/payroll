@@ -35,7 +35,6 @@ if (isset($_GET['id'])) {
             // Calculate repayment schedule
             $calculation = calculateLoanRepayment(
                 $loan_details['loan_amount'],
-                $loan_details['interest_rate'],
                 $loan_details['tenure_months']
             );
             
@@ -215,7 +214,6 @@ include '../../includes/header.php';
                                 <th>Employee</th>
                                 <th>Loan Type</th>
                                 <th>Amount</th>
-                                <th>Interest Rate</th>
                                 <th>Tenure</th>
                                 <th>Monthly Payment</th>
                                 <th>Application Date</th>
@@ -233,7 +231,6 @@ include '../../includes/header.php';
                                 </td>
                                 <td><?php echo htmlspecialchars($loan['loan_name']); ?></td>
                                 <td><?php echo formatCurrency($loan['loan_amount']); ?></td>
-                                <td><?php echo $loan['interest_rate']; ?>%</td>
                                 <td><?php echo $loan['tenure_months']; ?> months</td>
                                 <td><?php echo formatCurrency($loan['monthly_repayment']); ?></td>
                                 <td><?php echo formatDate($loan['application_date']); ?></td>
@@ -440,8 +437,8 @@ include '../../includes/header.php';
                                     <option value="<?php echo $type['loan_type_id']; ?>" 
                                             data-max-amount="<?php echo $type['max_amount'] ?? ''; ?>"
                                             data-max-tenure="<?php echo $type['max_tenure_months'] ?? ''; ?>">
-                                        <?php echo htmlspecialchars($type['loan_name'] . ' (' . $type['interest_rate'] . '%' . 
-                                            ($type['max_amount'] ? ' - Max: ' . formatCurrency($type['max_amount']) : '') . ')'); ?>
+                                        <?php echo htmlspecialchars($type['loan_name'] . 
+                                            ($type['max_amount'] ? ' - Max: ' . formatCurrency($type['max_amount']) : '')); ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -498,7 +495,7 @@ include '../../includes/header.php';
                                 <div class="col-md-6">
                                     <div class="mb-2">
                                         <small class="text-muted">Interest Rate:</small>
-                                        <div id="interestRateDisplay" class="fw-bold">-</div>
+                                        <div class="fw-bold">0%</div>
                                     </div>
                                     <div class="mb-2">
                                         <small class="text-muted">Monthly Payment:</small>
@@ -507,12 +504,13 @@ include '../../includes/header.php';
                                 </div>
                                 <div class="col-md-6">
                                     <div class="mb-2">
-                                        <small class="text-muted">Total Interest:</small>
-                                        <div id="totalInterest" class="fw-bold">-</div>
-                                    </div>
-                                    <div class="mb-2">
                                         <small class="text-muted">Total Repayable:</small>
                                         <div id="totalRepayable" class="fw-bold">-</div>
+                                    </div>
+                                    <!-- Optionally hide Total Interest or show 0 -->
+                                    <div class="mb-2">
+                                        <small class="text-muted">Total Interest:</small>
+                                        <div class="fw-bold">₦0.00</div>
                                     </div>
                                 </div>
                             </div>
@@ -658,33 +656,22 @@ $(document).ready(function() {
     function calculateLoan() {
         const amount = parseFloat($('#loanAmount').val()) || 0;
         const tenure = parseInt($('#repaymentPeriod').val()) || 0;
-        const selectedOption = $('#loanType option:selected');
-        const loanText = selectedOption.text();
-        const rateMatch = loanText.match(/\(([\d.]+)%/);
-        const rate = rateMatch ? parseFloat(rateMatch[1]) : 0;
-
-        if (amount > 0 && tenure > 0 && rate > 0) {
-            // Try API calculation first
-            $.ajax({
-                url: '../../api/loans/calculate.php',
-                type: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    amount: amount,
-                    interest_rate: rate,
-                    tenure_months: tenure
-                }),
-                success: function(response) {
-                    if (response.success) {
-                        updateLoanSummary(response);
-                    } else {
-                        calculateClientSide(amount, rate, tenure);
-                    }
-                },
-                error: function() {
-                    calculateClientSide(amount, rate, tenure);
-                }
-            });
+        
+        if (amount > 0 && tenure > 0) {
+            const monthly_repayment = amount / tenure;
+            const total_repayable = amount;
+            const total_interest = 0;
+            
+            $('#interestRateDisplay').text('0%');
+            $('#monthlyPayment').text('₦' + monthly_repayment.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }));
+            $('#totalInterest').text('₦0.00');
+            $('#totalRepayable').text('₦' + total_repayable.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }));
         } else {
             resetSummary();
         }
@@ -696,27 +683,6 @@ $(document).ready(function() {
         updateLoanSummary(calculation);
     }
 
-    // Client-side calculation function
-    function calculateLoanRepayment(amount, interest_rate, tenure_months) {
-        const monthly_rate = interest_rate / 100 / 12;
-        let monthly_repayment;
-        
-        if (monthly_rate > 0) {
-            monthly_repayment = (amount * monthly_rate * Math.pow(1 + monthly_rate, tenure_months)) 
-                              / (Math.pow(1 + monthly_rate, tenure_months) - 1);
-        } else {
-            monthly_repayment = amount / tenure_months;
-        }
-        
-        const total_repayable = monthly_repayment * tenure_months;
-        const total_interest = total_repayable - amount;
-        
-        return {
-            monthly_repayment: Math.round(monthly_repayment * 100) / 100,
-            total_repayable: Math.round(total_repayable * 100) / 100,
-            total_interest: Math.round(total_interest * 100) / 100
-        };
-    }
 
     // Update loan summary display
     function updateLoanSummary(calculation) {
@@ -724,8 +690,8 @@ $(document).ready(function() {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }));
-        
-        $('#totalInterest').text('₦' + calculation.total_interest.toLocaleString(undefined, {
+        $('#totalInterest').text('₦0.00'); // Always zero
+        $('#totalRepayable').text('₦' + calculation.total_repayable.toLocaleString(undefined, {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }));
@@ -1088,7 +1054,6 @@ $(document).ready(function() {
                                     <th>#</th>
                                     <th>Due Date</th>
                                     <th>Principal</th>
-                                    <th>Interest</th>
                                     <th>Total Due</th>
                                     <th>Paid Date</th>
                                     <th>Amount Paid</th>
@@ -1105,7 +1070,6 @@ $(document).ready(function() {
                         <td>${payment.installment_number}</td>
                         <td>${formatDate(payment.due_date)}</td>
                         <td>₦${parseFloat(payment.principal_amount).toLocaleString()}</td>
-                        <td>₦${parseFloat(payment.interest_amount).toLocaleString()}</td>
                         <td>₦${parseFloat(payment.amount_due).toLocaleString()}</td>
                         <td>${payment.paid_date ? formatDate(payment.paid_date) : '-'}</td>
                         <td>${payment.amount_paid ? '₦' + parseFloat(payment.amount_paid).toLocaleString() : '-'}</td>
