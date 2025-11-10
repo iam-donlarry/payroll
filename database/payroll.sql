@@ -320,6 +320,14 @@ CREATE TABLE paye_tax_bands (
     fixed_amount DECIMAL(10,2) DEFAULT 0
 );
 
+-- ==================== BANKS AND PAYMENT METHODS ====================
+CREATE TABLE banks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    bank_name VARCHAR(255) NOT NULL,
+    bank_code VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==================== BENEFITS AND ALLOWANCES ====================
 
 -- Special benefits table

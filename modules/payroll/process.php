@@ -339,9 +339,26 @@ function calculateGrossSalaryFromDB($db, $employee_id) {
  * for compliance, even if B+H+T are stored separately in the DB.
  */
 function getDeductions($db, $employee_id, $gross_salary) {
+    // First check if employee is monthly paid
+    $stmt = $db->prepare("
+        SELECT et.type_name 
+        FROM employees e 
+        JOIN employee_types et ON e.employee_type_id = et.employee_type_id 
+        WHERE e.employee_id = ?
+    ");
+    $stmt->execute([$employee_id]);
+    $employee_type = $stmt->fetch(PDO::FETCH_ASSOC);
     
+    // If not monthly paid, return zero deductions
+    if (!$employee_type || strtolower($employee_type['type_name']) !== 'monthly paid') {
+        return [
+            'total' => 0,
+            'components' => []
+        ];
+    }
+    
+    // For monthly paid employees, calculate deductions
     // 1. Calculate pension (8% of Basic + Housing + Transport, derived from Gross percentages)
-    // These percentages must match the structure defined in ensureSalaryComponents/database setup.
     $basic_monthly = $gross_salary * 0.6665;
     $housing = $gross_salary * 0.1875;
     $transport = $gross_salary * 0.08;

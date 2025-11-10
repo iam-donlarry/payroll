@@ -97,14 +97,20 @@ function getNigerianStates() {
     ];
 }
 
-function getBankList() {
-    return [
-        'Access Bank', 'Citibank', 'Ecobank', 'Fidelity Bank', 'First Bank', 'First City Monument Bank',
-        'Globus Bank', 'Guaranty Trust Bank', 'Heritage Bank', 'Jaiz Bank', 'Keystone Bank',
-        'Polaris Bank', 'Providus Bank', 'Stanbic IBTC Bank', 'Standard Chartered Bank',
-        'Sterling Bank', 'Suntrust Bank', 'Union Bank', 'United Bank for Africa', 'Unity Bank',
-        'Wema Bank', 'Zenith Bank'
-    ];
+function getBankList($db) {
+    try {
+        $stmt = $db->prepare("SELECT bank_name FROM banks ORDER BY bank_name ASC");
+        // 2. Execute the query
+        $stmt->execute();  
+        // 3. Fetch all results as an associative array
+        $banks = $stmt->fetchAll(PDO::FETCH_COLUMN, 0); 
+
+        return $banks;
+        
+    } catch (PDOException $e) {
+        error_log("Database error fetching bank list: " . $e->getMessage());
+        return [];
+    }
 }
 
 function logAction($action, $details = null) {
