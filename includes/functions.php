@@ -99,11 +99,11 @@ function getNigerianStates() {
 
 function getBankList($db) {
     try {
-        $stmt = $db->prepare("SELECT bank_name FROM banks ORDER BY bank_name ASC");
+        $stmt = $db->prepare("SELECT id, bank_name FROM banks ORDER BY bank_name ASC");
         // 2. Execute the query
         $stmt->execute();  
         // 3. Fetch all results as an associative array
-        $banks = $stmt->fetchAll(PDO::FETCH_COLUMN, 0); 
+        $banks = $stmt->fetchAll(PDO::FETCH_ASSOC); 
 
         return $banks;
         

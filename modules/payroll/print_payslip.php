@@ -23,12 +23,14 @@ try {
         SELECT 
             pm.*,
             e.employee_id, e.first_name, e.last_name, e.employee_code,
-            e.bank_name, e.account_number, e.account_name,
+            e.account_number, e.account_name,
+            b.bank_name, b.bank_code,
             d.department_name,
             pp.period_name, pp.start_date, pp.end_date, pp.payment_date,
             c.company_name, c.phone, c.email
         FROM payroll_master pm
         JOIN employees e ON pm.employee_id = e.employee_id
+        LEFT JOIN banks b ON e.bank_id = b.id
         LEFT JOIN departments d ON e.department_id = d.department_id
         LEFT JOIN payroll_periods pp ON pm.period_id = pp.period_id
         LEFT JOIN companies c ON e.company_id = c.company_id
@@ -212,7 +214,7 @@ header('Content-Type: text/html; charset=utf-8');
                     </div>
                     <div class="card-body">
                         <p class="mb-1"><strong>Payroll ID:</strong> <?php echo $payslip['payroll_id']; ?></p>
-                        <p class="mb-1"><strong>Bank:</strong> <?php echo htmlspecialchars($payslip['bank_name'] ?? 'N/A'); ?></p>
+                        <p class="mb-1"><strong>Bank:</strong> <?php echo htmlspecialchars($payslip['bank_name'] ?? 'N/A'); ?> (<?php echo htmlspecialchars($payslip['bank_code'] ?? 'N/A'); ?>)</p>
                         <p class="mb-1"><strong>Account Number:</strong> <?php echo htmlspecialchars($payslip['account_number'] ?? 'N/A'); ?></p>
                         <p class="mb-0"><strong>Status:</strong> 
                             <span class="badge bg-<?php echo $payslip['payment_status'] === 'paid' ? 'success' : 'warning'; ?>">

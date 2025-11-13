@@ -118,14 +118,18 @@ include '../../includes/header.php';
         </a>
         <?php echo htmlspecialchars($period['period_name'] ?? 'Payslips'); ?>
     </h1>
-    
-    <?php if (in_array(strtolower($period['status']), ['processing', 'pending'])): ?>
-    <form method="POST" onsubmit="return confirm('Are you sure you want to mark this payroll as paid? This action cannot be undone.');">
-        <button type="submit" name="mark_paid" class="btn btn-success">
-            <i class="fas fa-check-circle me-2"></i>Mark as Paid
-        </button>
-    </form>
-    <?php endif; ?>
+    <div>
+        <a href="export_bank_schedule.php?period_id=<?php echo htmlspecialchars($period_id); ?>" class="btn btn-success">
+            <i class="fas fa-file-excel me-2"></i>Export Bank Schedule
+        </a>
+        <?php if (in_array(strtolower($period['status']), ['processing', 'pending'])): ?>
+        <form method="POST" onsubmit="return confirm('Are you sure you want to mark this payroll as paid? This action cannot be undone.');">
+            <button type="submit" name="mark_paid" class="btn btn-success">
+                <i class="fas fa-check-circle me-2"></i>Mark as Paid
+            </button>
+        </form>
+        <?php endif; ?>
+    </div>
 </div>
 
 <?php echo $message; ?>

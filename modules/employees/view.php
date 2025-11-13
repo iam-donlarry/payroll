@@ -26,11 +26,13 @@ $attendance_summary = [];
 $payroll_history = [];
 
 try {
+    // Update the query to join the banks table
     $query = "SELECT e.*, d.department_name, d.department_code,
                      et.type_name as employee_type, et.payment_frequency,
                      ee.passport_number, ee.passport_expiry, ee.country_of_origin,
                      ee.work_permit_number, ee.work_permit_expiry, ee.base_currency,
                      ee.conversion_rate,
+                     b.bank_name,
                      CONCAT(e.first_name, ' ', e.last_name) as full_name,
                      DATE_FORMAT(e.date_of_birth, '%Y-%m-%d') as date_of_birth,
                      DATE_FORMAT(e.employment_date, '%Y-%m-%d') as employment_date,
@@ -40,6 +42,7 @@ try {
               LEFT JOIN departments d ON e.department_id = d.department_id 
               LEFT JOIN employee_types et ON e.employee_type_id = et.employee_type_id 
               LEFT JOIN expatriate_employees ee ON e.employee_id = ee.employee_id 
+              LEFT JOIN banks b ON e.bank_id = b.id
               WHERE e.employee_id = :employee_id";
     
     $stmt = $db->prepare($query);

@@ -63,7 +63,7 @@ if ($_POST) {
         'department_id' => (int)$_POST['department_id'],
         'employment_date' => sanitizeInput($_POST['employment_date']),
         'confirmation_date' => sanitizeInput($_POST['confirmation_date']),
-        'bank_name' => sanitizeInput($_POST['bank_name']),
+        'bank_id' => (int)$_POST['bank_id'],
         'account_number' => sanitizeInput($_POST['account_number']),
         'account_name' => sanitizeInput($_POST['account_name']),
         'bvn' => sanitizeInput($_POST['bvn']),
@@ -112,7 +112,7 @@ if ($_POST) {
                          department_id = :department_id,
                          employment_date = :employment_date,
                          confirmation_date = :confirmation_date,
-                         bank_name = :bank_name,
+                         bank_id = :bank_id,
                          account_number = :account_number,
                          account_name = :account_name,
                          bvn = :bvn,
@@ -142,7 +142,7 @@ if ($_POST) {
                 ':department_id' => $employee_data['department_id'],
                 ':employment_date' => $employee_data['employment_date'],
                 ':confirmation_date' => $employee_data['confirmation_date'],
-                ':bank_name' => $employee_data['bank_name'],
+                ':bank_id' => $employee_data['bank_id'],
                 ':account_number' => $employee_data['account_number'],
                 ':account_name' => $employee_data['account_name'],
                 ':bvn' => $employee_data['bvn'],
@@ -477,13 +477,12 @@ include '../../includes/header.php';
                 <div class="col-md-6">
                     <div class="mb-3">
                         <label class="form-label">Bank Name</label>
-                        <select class="form-control" name="bank_name">
+                        <select class="form-control" name="bank_id" required>
                             <option value="">Select Bank</option>
                             <?php foreach ($bankList as $bank): ?>
-                            <option value="<?php echo htmlspecialchars($bank); ?>" 
-                                <?php echo ($_POST['bank_name'] ?? '') == $bank ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($bank); ?>
-                            </option>
+                                <option value="<?php echo $bank['id']; ?>" <?php echo ($_POST['bank_id'] ?? '') == $bank['id'] ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($bank['bank_name']); ?>
+                                </option>
                             <?php endforeach; ?>
                         </select>
                     </div>

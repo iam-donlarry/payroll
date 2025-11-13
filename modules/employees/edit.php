@@ -46,6 +46,9 @@ try {
     $type_stmt->execute();
     $employee_types = $type_stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Fetch bank list for dropdown
+    $bankList = getBankList($db);
+
 } catch (PDOException $e) {
     error_log("Edit employee error: " . $e->getMessage());
     $message = '<div class="alert alert-danger">Error loading employee data.</div>';
@@ -73,7 +76,7 @@ if ($_POST) {
         'department_id' => (int)$_POST['department_id'],
         'employment_date' => sanitizeInput($_POST['employment_date']),
         'confirmation_date' => sanitizeInput($_POST['confirmation_date']),
-        'bank_name' => sanitizeInput($_POST['bank_name']),
+        'bank_id' => (int)$_POST['bank_id'],
         'account_number' => sanitizeInput($_POST['account_number']),
         'account_name' => sanitizeInput($_POST['account_name']),
         'bvn' => sanitizeInput($_POST['bvn']),
@@ -115,7 +118,7 @@ if ($_POST) {
                      department_id = :department_id,
                      employment_date = :employment_date,
                      confirmation_date = :confirmation_date,
-                     bank_name = :bank_name,
+                     bank_id = :bank_id,
                      account_number = :account_number,
                      account_name = :account_name,
                      bvn = :bvn,
@@ -197,8 +200,189 @@ include '../../includes/header.php';
                 </div>
             </div>
 
-            <!-- ... (other form fields) ... -->
-             
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label">Middle Name</label>
+                        <input type="text" class="form-control" name="middle_name" 
+                               value="<?php echo htmlspecialchars($employee['middle_name']); ?>">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label">Gender</label>
+                        <select class="form-control" name="gender">
+                            <option value="">Select</option>
+                            <option value="male" <?php echo ($employee['gender'] ?? '') == 'male' ? 'selected' : ''; ?>>Male</option>
+                            <option value="female" <?php echo ($employee['gender'] ?? '') == 'female' ? 'selected' : ''; ?>>Female</option>
+                            <option value="other" <?php echo ($employee['gender'] ?? '') == 'other' ? 'selected' : ''; ?>>Other</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label">Marital Status</label>
+                        <select class="form-control" name="marital_status">
+                            <option value="">Select</option>
+                            <option value="single" <?php echo ($employee['marital_status'] ?? '') == 'single' ? 'selected' : ''; ?>>Single</option>
+                            <option value="married" <?php echo ($employee['marital_status'] ?? '') == 'married' ? 'selected' : ''; ?>>Married</option>
+                            <option value="divorced" <?php echo ($employee['marital_status'] ?? '') == 'divorced' ? 'selected' : ''; ?>>Divorced</option>
+                            <option value="widowed" <?php echo ($employee['marital_status'] ?? '') == 'widowed' ? 'selected' : ''; ?>>Widowed</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label">Date of Birth <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" name="date_of_birth" 
+                               value="<?php echo htmlspecialchars($employee['date_of_birth']); ?>" required>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label">Employment Date <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" name="employment_date" 
+                               value="<?php echo htmlspecialchars($employee['employment_date']); ?>" required>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label">Confirmation Date</label>
+                        <input type="date" class="form-control" name="confirmation_date" 
+                               value="<?php echo htmlspecialchars($employee['confirmation_date']); ?>">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Email <span class="text-danger">*</span></label>
+                        <input type="email" class="form-control" name="email" 
+                               value="<?php echo htmlspecialchars($employee['email']); ?>" required>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Phone Number <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="phone_number" 
+                               value="<?php echo htmlspecialchars($employee['phone_number']); ?>" required>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Alternate Phone</label>
+                        <input type="text" class="form-control" name="alternate_phone" 
+                               value="<?php echo htmlspecialchars($employee['alternate_phone']); ?>">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Residential Address</label>
+                        <input type="text" class="form-control" name="residential_address" 
+                               value="<?php echo htmlspecialchars($employee['residential_address']); ?>">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label">State of Origin</label>
+                        <input type="text" class="form-control" name="state_of_origin" 
+                               value="<?php echo htmlspecialchars($employee['state_of_origin']); ?>">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label">LGA of Origin</label>
+                        <input type="text" class="form-control" name="lga_of_origin" 
+                               value="<?php echo htmlspecialchars($employee['lga_of_origin']); ?>">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label">Employee Type</label>
+                        <select class="form-control" name="employee_type_id">
+                            <option value="">Select Employee Type</option>
+                            <?php foreach ($employee_types as $type): ?>
+                                <option value="<?php echo $type['employee_type_id']; ?>" <?php echo ($employee['employee_type_id'] ?? '') == $type['employee_type_id'] ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($type['type_name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Department</label>
+                        <select class="form-control" name="department_id">
+                            <option value="">Select Department</option>
+                            <?php foreach ($departments as $department): ?>
+                                <option value="<?php echo $department['department_id']; ?>" <?php echo ($employee['department_id'] ?? '') == $department['department_id'] ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($department['department_name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Bank</label>
+                        <select class="form-control" name="bank_id" required>
+                            <option value="">Select Bank</option>
+                            <?php foreach ($bankList as $bank): ?>
+                                <option value="<?php echo $bank['id']; ?>" <?php echo ($employee['bank_id'] ?? '') == $bank['id'] ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($bank['bank_name']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Account Number</label>
+                        <input type="text" class="form-control" name="account_number" 
+                               value="<?php echo htmlspecialchars($employee['account_number']); ?>">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Account Name</label>
+                        <input type="text" class="form-control" name="account_name" 
+                               value="<?php echo htmlspecialchars($employee['account_name']); ?>">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">BVN</label>
+                        <input type="text" class="form-control" name="bvn" maxlength="11"
+                               value="<?php echo htmlspecialchars($employee['bvn']); ?>">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Pension PIN</label>
+                        <input type="text" class="form-control" name="pension_pin" 
+                               value="<?php echo htmlspecialchars($employee['pension_pin']); ?>">
+                    </div>
+                </div>
+            </div>
 
             <div class="row">
                 <div class="col-md-6">
