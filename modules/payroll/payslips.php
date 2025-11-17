@@ -23,31 +23,31 @@ $message = '';
 if (isset($_POST['mark_paid']) && $period_id) {
     try {
         $db->beginTransaction();
-        
+
         // Update payroll_master payment_status
-        $update = $db->prepare("
-            UPDATE payroll_master 
+        $update = $db->prepare(
+            "UPDATE payroll_master 
             SET payment_status = 'paid', 
                 payment_date = NOW() 
-            WHERE period_id = :period_id
-        ");
+            WHERE period_id = :period_id"
+        );
         $update->execute([':period_id' => $period_id]);
-        
+
         // Update payroll_periods status
-        $updatePeriod = $db->prepare("
-            UPDATE payroll_periods 
-            SET status = 'paid' 
-            WHERE period_id = :period_id
-        ");
+        $updatePeriod = $db->prepare(
+            "UPDATE payroll_periods 
+            SET status = 'locked' 
+            WHERE period_id = :period_id"
+        );
         $updatePeriod->execute([':period_id' => $period_id]);
-        
+
         $db->commit();
-        $message = '<div class="alert alert-success">Payroll marked as paid successfully!</div>';
-        
+        $message = '<div class="alert alert-success">Payroll marked as paid and the period is now locked!</div>';
+
         // Refresh the page to show updated status
-        header("Location: payslips.php?period_id=" . $period_id . "&success=Payroll+marked+as+paid+successfully");
+        header("Location: payslips.php?period_id=" . $period_id . "&success=Payroll+marked+as+paid+and+locked+successfully");
         exit();
-        
+
     } catch (PDOException $e) {
         $db->rollBack();
         error_log("Error marking payroll as paid: " . $e->getMessage());
@@ -103,6 +103,11 @@ try {
 } catch (Exception $e) {
     error_log("Payslips error: " . $e->getMessage());
     $message = '<div class="alert alert-danger">Error loading payroll data: ' . htmlspecialchars($e->getMessage()) . '</div>';
+}
+
+// Prevent re-processing of locked periods
+if (strtolower($period['status']) === 'locked') {
+    $message = '<div class="alert alert-warning">This payroll period has already been processed and locked and cannot be modified.</div>';
 }
 
 $page_title = "Payslips - " . ($period['period_name'] ?? 'Payroll Period');

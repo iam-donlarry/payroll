@@ -86,7 +86,17 @@ try {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['period_id'])) {
     $period_id = intval($_POST['period_id']);
-    $success = processPayroll($db, $period_id);
+
+    // Check if the selected period is locked
+    $stmt = $db->prepare("SELECT status FROM payroll_periods WHERE period_id = ?");
+    $stmt->execute([$period_id]);
+    $period = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($period && strtolower($period['status']) === 'locked') {
+        $error = "This payroll period is locked and cannot be processed.";
+    } else {
+        $success = processPayroll($db, $period_id);
+    }
 }
 
 include '../../includes/header.php';
@@ -117,11 +127,18 @@ include '../../includes/header.php';
                 <select class="form-control" name="period_id" required>
                     <option value="">Select Period</option>
                     <?php foreach ($periods as $p): ?>
-                        <option value="<?php echo $p['period_id']; ?>" 
-                            <?php echo ($period_id == $p['period_id']) ? 'selected' : ''; ?>>
-                            <?php echo htmlspecialchars($p['period_name']); ?> 
-                            (<?php echo formatDate($p['start_date']); ?> - <?php echo formatDate($p['end_date']); ?>)
-                        </option>
+                        <?php if (strtolower($p['status']) === 'locked'): ?>
+                            <option value="" disabled>
+                                <?php echo htmlspecialchars($p['period_name']); ?> 
+                                (<?php echo formatDate($p['start_date']); ?> - <?php echo formatDate($p['end_date']); ?>) - Locked
+                            </option>
+                        <?php else: ?>
+                            <option value="<?php echo $p['period_id']; ?>" 
+                                <?php echo ($period_id == $p['period_id']) ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($p['period_name']); ?> 
+                                (<?php echo formatDate($p['start_date']); ?> - <?php echo formatDate($p['end_date']); ?>)
+                            </option>
+                        <?php endif; ?>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -148,7 +165,7 @@ function processPayroll($db, $period_id) {
     try {
         // 1. Ensure all required salary components exist
         ensureSalaryComponents($db);
-        
+
         // 2. Fetch the selected period
         $stmt = $db->prepare("SELECT * FROM payroll_periods WHERE period_id = ?");
         $stmt->execute([$period_id]);
@@ -158,14 +175,23 @@ function processPayroll($db, $period_id) {
             return "Invalid payroll period selected.";
         }
 
-        // 3. Fetch all active employees
-        $stmt = $db->prepare("
-            SELECT e.*, d.department_name, et.type_name 
+        // 3. Update the payroll period status to 'processing'
+        $stmt = $db->prepare("UPDATE payroll_periods SET status = 'processing' WHERE period_id = ?");
+        $stmt->execute([$period_id]);
+
+        // 4. Check if payroll records already exist for this period
+        $stmt = $db->prepare("SELECT * FROM payroll_master WHERE period_id = ?");
+        $stmt->execute([$period_id]);
+        $existingPayroll = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // 5. Fetch all active employees
+        $stmt = $db->prepare(
+            "SELECT e.*, d.department_name, et.type_name 
             FROM employees e 
             LEFT JOIN departments d ON e.department_id = d.department_id
             LEFT JOIN employee_types et ON e.employee_type_id = et.employee_type_id
-            WHERE e.status = 'active'
-        ");
+            WHERE e.status = 'active'"
+        );
         $stmt->execute();
         $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -173,112 +199,98 @@ function processPayroll($db, $period_id) {
             return "No active employees found to process.";
         }
 
-        // 4. Process each employee
+        // 6. Process each employee
         foreach ($employees as $emp) {
             $employee_id = $emp['employee_id'];
 
-            // === CRITICAL FIX: CALCULATE GROSS SALARY FIRST ===
-            // This retrieves and sums all active earnings components (Basic + Allowances).
+            // Check if this employee already has a payroll record for this period
+            $existingRecord = array_filter($existingPayroll, function ($record) use ($employee_id) {
+                return $record['employee_id'] == $employee_id;
+            });
+
+            // Calculate salary data
             $salary_data = calculateGrossSalaryFromDB($db, $employee_id);
-            
             $basic_salary = $salary_data['basic_salary'];
             $allowances_data = $salary_data['allowances_data'];
             $total_allowances = $allowances_data['total'];
-            
-            // Gross Salary is the derived total of all fetched earnings
             $gross_salary = $basic_salary + $total_allowances;
-            $total_earnings = $gross_salary; 
-            
+            $total_earnings = $gross_salary;
+
             if ($gross_salary <= 0) {
-                 // Skip employees with no defined earnings
-                continue; 
+                continue; // Skip employees with no defined earnings
             }
 
-            // 5. Calculate deductions based on the CALCULATED Gross Salary
             $deductions = getDeductions($db, $employee_id, $gross_salary);
-
-            // 6. Calculate Net Salary
             $total_deductions = $deductions['total'];
             $net_salary = $total_earnings - $total_deductions;
 
-            // --- Database Insert Operations ---
-            
-            // Insert master record
-            $stmt = $db->prepare("
-                INSERT INTO payroll_master 
-                (period_id, employee_id, basic_salary, total_earnings, total_deductions, gross_salary, net_salary, payment_status)
-                VALUES (:period_id, :employee_id, :basic_salary, :total_earnings, :total_deductions, :gross_salary, :net_salary, 'pending')
-            ");
-            $stmt->execute([
-                ':period_id' => $period_id,
-                ':employee_id' => $employee_id,
-                ':basic_salary' => $basic_salary, // Calculated from DB fetch
-                ':total_earnings' => $total_earnings,
-                ':total_deductions' => $total_deductions,
-                ':gross_salary' => $gross_salary,
-                ':net_salary' => $net_salary
-            ]);
+            if ($existingRecord) {
+                // Update existing record if data has changed
+                $existingRecord = current($existingRecord);
+                if (
+                    $existingRecord['basic_salary'] != $basic_salary ||
+                    $existingRecord['total_earnings'] != $total_earnings ||
+                    $existingRecord['total_deductions'] != $total_deductions ||
+                    $existingRecord['net_salary'] != $net_salary
+                ) {
+                    $stmt = $db->prepare(
+                        "UPDATE payroll_master SET 
+                        basic_salary = :basic_salary, 
+                        total_earnings = :total_earnings, 
+                        total_deductions = :total_deductions, 
+                        gross_salary = :gross_salary, 
+                        net_salary = :net_salary
+                        WHERE payroll_id = :payroll_id"
+                    );
+                    $stmt->execute([
+                        ':basic_salary' => $basic_salary,
+                        ':total_earnings' => $total_earnings,
+                        ':total_deductions' => $total_deductions,
+                        ':gross_salary' => $gross_salary,
+                        ':net_salary' => $net_salary,
+                        ':payroll_id' => $existingRecord['payroll_id']
+                    ]);
+                }
+            } else {
+                // Insert new record if no existing record
+                $stmt = $db->prepare(
+                    "INSERT INTO payroll_master 
+                    (period_id, employee_id, basic_salary, total_earnings, total_deductions, gross_salary, net_salary, payment_status)
+                    VALUES (:period_id, :employee_id, :basic_salary, :total_earnings, :total_deductions, :gross_salary, :net_salary, 'pending')"
+                );
+                $stmt->execute([
+                    ':period_id' => $period_id,
+                    ':employee_id' => $employee_id,
+                    ':basic_salary' => $basic_salary,
+                    ':total_earnings' => $total_earnings,
+                    ':total_deductions' => $total_deductions,
+                    ':gross_salary' => $gross_salary,
+                    ':net_salary' => $net_salary
+                ]);
 
-            $payroll_id = $db->lastInsertId();
+                $payroll_id = $db->lastInsertId();
 
-            // Get component IDs from database for details insertion
-            $componentStmt = $db->prepare("SELECT component_id, component_name FROM salary_components");
-            $componentStmt->execute();
-            $components = [];
-            while ($row = $componentStmt->fetch(PDO::FETCH_ASSOC)) {
-                $components[$row['component_name']] = $row['component_id'];
-            }
+                // Insert payroll details
+                $earnings = [
+                    [
+                        'component_id' => 1, // Assuming Basic Salary component ID is 1
+                        'amount' => $basic_salary
+                    ]
+                ];
 
-            // Prepare and insert all earnings (Basic + Allowances fetched from DB)
-            $earnings = [];
-            
-            // Add fetched basic salary as an earning
-            $earnings[] = [
-                'component_id' => $components['Basic'] ?? 1,
-                'component_name' => 'Basic',
-                'amount' => $basic_salary
-            ];
-            
-            // Add all fetched allowances as earnings
-            if (!empty($allowances_data['components'])) {
                 foreach ($allowances_data['components'] as $allowance) {
                     $earnings[] = [
-                        'component_id' => $components[$allowance['component_name']] ?? 0,
-                        'component_name' => $allowance['component_name'],
+                        'component_id' => $allowance['component_id'],
                         'amount' => $allowance['amount']
                     ];
                 }
-            }
-            
-            insertPayrollDetails($db, $payroll_id, $earnings, 'earning');
 
-            // Insert all deductions with their component IDs
-            if (!empty($deductions['components'])) {
-                $deduction_components = [];
-                foreach ($deductions['components'] as $deduction) {
-                    // Map the component name to match the database
-                    $component_name = $deduction['component_name'];
-                    if ($component_name === 'PAYE') {
-                        $component_name = 'PAYE Tax'; // Match the name in salary_components
-                    }
-                    
-                    $deduction_components[] = [
-                        'component_id' => $components[$component_name] ?? 0,
-                        'component_name' => $component_name,
-                        'amount' => $deduction['amount']
-                    ];
-                }
-                if (!empty($deduction_components)) {
-                    insertPayrollDetails($db, $payroll_id, $deduction_components, 'deduction');
-                }
+                insertPayrollDetails($db, $payroll_id, $earnings, 'earning');
+                insertPayrollDetails($db, $payroll_id, $deductions['components'], 'deduction');
             }
-
-            // Update payroll period status
-            $stmt = $db->prepare("UPDATE payroll_periods SET status = 'processing' WHERE period_id = ?");
-            $stmt->execute([$period_id]);
         }
 
-        return "✅ Payroll processed successfully for " . count($employees) . " employees.";
+        return "✅ Payroll processed successfully.";
 
     } catch (PDOException $e) {
         return "❌ Error processing payroll: " . $e->getMessage();
@@ -525,5 +537,3 @@ function insertPayrollDetails($db, $payroll_id, $components, $type) {
         }
     }
 }
-
-?>
