@@ -11,7 +11,7 @@
     <script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
     
     <!-- Custom JS -->
-    <script src="../assets/js/app.js"></script>
+    <script src="<?= base_url('assets/js/app.js'); ?>"></script>
     
     <?php if (isset($page_js)): ?>
     <script><?php echo $page_js; ?></script>

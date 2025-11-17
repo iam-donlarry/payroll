@@ -6,7 +6,7 @@ function includeFile($path) {
 
 function base_url($path = '') {
     // Adjust to your localhost or live server root
-    return '/PAY/' . ltrim($path, '/');
+    return '/' . ltrim($path, '/');
 }
 function sanitizeInput($data) {
     if (is_array($data)) {
@@ -99,7 +99,7 @@ function getNigerianStates() {
 
 function getBankList($db) {
     try {
-        $stmt = $db->prepare("SELECT id, bank_name FROM banks ORDER BY bank_name ASC");
+        $stmt = $db->prepare("SELECT id, bank_code, bank_name FROM banks ORDER BY bank_name ASC");
         // 2. Execute the query
         $stmt->execute();  
         // 3. Fetch all results as an associative array

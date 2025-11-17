@@ -480,8 +480,10 @@ include '../../includes/header.php';
                         <select class="form-control" name="bank_id" required>
                             <option value="">Select Bank</option>
                             <?php foreach ($bankList as $bank): ?>
-                                <option value="<?php echo $bank['id']; ?>" <?php echo ($_POST['bank_id'] ?? '') == $bank['id'] ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($bank['bank_name']); ?>
+                                <option value="<?php echo $bank['id']; ?>" 
+                                    <?php echo (($_POST['bank_id'] ?? '') == $bank['id']) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($bank['bank_name']); ?> 
+                                    (<?php echo htmlspecialchars($bank['bank_code']); ?>)
                                 </option>
                             <?php endforeach; ?>
                         </select>

@@ -32,7 +32,7 @@ $current_user = $is_logged_in ? [
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <!-- Custom CSS -->
-    <link href="../assets/css/style.css" rel="stylesheet">
+    <link href="<?= base_url('assets/css/styles.css'); ?>" rel="stylesheet">
     
     <?php if (isset($page_css)): ?>
     <style><?php echo $page_css; ?></style>
