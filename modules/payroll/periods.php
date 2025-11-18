@@ -160,7 +160,7 @@ include '../../includes/header.php';
                                 <label class="form-label">Period Name <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control" name="period_name" 
                                        value="<?php echo htmlspecialchars($_POST['period_name'] ?? $default_period_name); ?>" 
-                                       placeholder="e.g., January 2024 Payroll" required>
+                                       placeholder="e.g., January 2024 Payroll" required readonly>
                             </div>
                         </div>
                         <div class="col-md-6">
