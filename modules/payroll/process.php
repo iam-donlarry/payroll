@@ -32,8 +32,6 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['perio
                     DELETE pd FROM payroll_details pd
                     JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
                     WHERE pm.period_id = ?
-                
-                
                 ");
                 $stmt->execute([$period_id]);
                 
@@ -224,6 +222,15 @@ function processPayroll($db, $period_id) {
             $total_deductions = $deductions['total'];
             $net_salary = $total_earnings - $total_deductions;
 
+            // Get component IDs from database for details insertion (for both earnings and deductions)
+            $componentStmt = $db->prepare("SELECT component_id, component_name FROM salary_components");
+            $componentStmt->execute();
+            $components = [];
+            while ($row = $componentStmt->fetch(PDO::FETCH_ASSOC)) {
+                $components[$row['component_name']] = $row['component_id'];
+            }
+
+
             if ($existingRecord) {
                 // Update existing record if data has changed
                 $existingRecord = current($existingRecord);
@@ -250,6 +257,53 @@ function processPayroll($db, $period_id) {
                         ':net_salary' => $net_salary,
                         ':payroll_id' => $existingRecord['payroll_id']
                     ]);
+
+                    // Delete existing payroll details for this payroll record
+                    $stmt = $db->prepare("DELETE FROM payroll_details WHERE payroll_id = ?");
+                    $stmt->execute([$existingRecord['payroll_id']]);
+
+                    // Insert updated payroll details
+                    $payroll_id = $existingRecord['payroll_id'];
+                    
+                    // Prepare and insert all earnings (Basic + Allowances fetched from DB)
+                    $earnings = [];
+                    // Add fetched basic salary as an earning
+                    $earnings[] = [
+                        'component_id' => $components['Basic'] ?? 1,
+                        'component_name' => 'Basic',
+                        'amount' => $basic_salary
+                    ];
+                    // Add all fetched allowances as earnings
+                    if (!empty($allowances_data['components'])) {
+                        foreach ($allowances_data['components'] as $allowance) {
+                             $earnings[] = [
+                                'component_id' => $components[$allowance['component_name']] ?? 0,
+                                'component_name' => $allowance['component_name'],
+                                'amount' => $allowance['amount']
+                            ];
+                        }
+                    }
+                    insertPayrollDetails($db, $payroll_id, $earnings, 'earning');
+
+                    // Prepare and insert all deductions with their component IDs (using the same mapping logic as earnings)
+                    if (!empty($deductions['components'])) {
+                        $deduction_components = [];
+                        foreach ($deductions['components'] as $deduction) {
+                            // Map the component name to match the database
+                            $component_name = $deduction['component_name'];
+                            if ($component_name === 'PAYE') {
+                                $component_name = 'PAYE Tax'; // Match the name in salary_components
+                            }
+                            $deduction_components[] = [
+                                'component_id' => $components[$component_name] ?? 0,
+                                'component_name' => $component_name,
+                                'amount' => $deduction['amount']
+                            ];
+                        }
+                        if (!empty($deduction_components)) {
+                            insertPayrollDetails($db, $payroll_id, $deduction_components, 'deduction');
+                        }
+                    }
                 }
             } else {
                 // Insert new record if no existing record
@@ -270,23 +324,45 @@ function processPayroll($db, $period_id) {
 
                 $payroll_id = $db->lastInsertId();
 
-                // Insert payroll details
-                $earnings = [
-                    [
-                        'component_id' => 1, // Assuming Basic Salary component ID is 1
-                        'amount' => $basic_salary
-                    ]
+                // Prepare and insert all earnings (Basic + Allowances fetched from DB)
+                $earnings = [];
+                // Add fetched basic salary as an earning
+                $earnings[] = [
+                    'component_id' => $components['Basic'] ?? 1,
+                    'component_name' => 'Basic',
+                    'amount' => $basic_salary
                 ];
-
-                foreach ($allowances_data['components'] as $allowance) {
-                    $earnings[] = [
-                        'component_id' => $allowance['component_id'],
-                        'amount' => $allowance['amount']
-                    ];
+                // Add all fetched allowances as earnings
+                if (!empty($allowances_data['components'])) {
+                    foreach ($allowances_data['components'] as $allowance) {
+                         $earnings[] = [
+                            'component_id' => $components[$allowance['component_name']] ?? 0,
+                            'component_name' => $allowance['component_name'],
+                            'amount' => $allowance['amount']
+                        ];
+                    }
                 }
-
                 insertPayrollDetails($db, $payroll_id, $earnings, 'earning');
-                insertPayrollDetails($db, $payroll_id, $deductions['components'], 'deduction');
+
+                // Prepare and insert all deductions with their component IDs (using the same mapping logic as earnings)
+                if (!empty($deductions['components'])) {
+                    $deduction_components = [];
+                    foreach ($deductions['components'] as $deduction) {
+                        // Map the component name to match the database
+                        $component_name = $deduction['component_name'];
+                        if ($component_name === 'PAYE') {
+                            $component_name = 'PAYE Tax'; // Match the name in salary_components
+                        }
+                        $deduction_components[] = [
+                            'component_id' => $components[$component_name] ?? 0,
+                            'component_name' => $component_name,
+                            'amount' => $deduction['amount']
+                        ];
+                    }
+                    if (!empty($deduction_components)) {
+                        insertPayrollDetails($db, $payroll_id, $deduction_components, 'deduction');
+                    }
+                }
             }
         }
 
@@ -537,3 +613,5 @@ function insertPayrollDetails($db, $payroll_id, $components, $type) {
         }
     }
 }
+
+?>

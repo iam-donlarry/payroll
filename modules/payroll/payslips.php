@@ -124,7 +124,7 @@ include '../../includes/header.php';
         <?php echo htmlspecialchars($period['period_name'] ?? 'Payslips'); ?>
     </h1>
     <div>
-        <a href="export_bank_schedule.php?period_id=<?php echo htmlspecialchars($period_id); ?>" class="btn btn-success">
+        <a href="export_bank_schedule.php?period_id=<?php echo htmlspecialchars($period_id); ?>" class="btn btn-success mb-3">
             <i class="fas fa-file-excel me-2"></i>Export Bank Schedule
         </a>
         <?php if (in_array(strtolower($period['status']), ['processing', 'pending'])): ?>
