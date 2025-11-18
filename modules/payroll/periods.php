@@ -78,6 +78,62 @@ if ($_POST) {
     }
 }
 
+// --- NEW LOGIC: Determine Default Dates/Name based on most recent locked period ---
+$default_start_date = null;
+$default_end_date = null;
+$default_payment_date = null;
+$default_period_name = null;
+
+try {
+    // Fetch the most recent period (based on start_date, assuming newer periods have later start dates)
+    $stmt = $db->prepare("SELECT start_date, end_date, status FROM payroll_periods ORDER BY start_date DESC LIMIT 1");
+    $stmt->execute();
+    $most_recent_period = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($most_recent_period && $most_recent_period['status'] === 'locked') {
+        // If the most recent period is locked, calculate next month's dates
+        $locked_end_date = new DateTime($most_recent_period['end_date']);
+        
+        // Calculate next month's start (first day)
+        $next_start = clone $locked_end_date;
+        $next_start->modify('first day of next month');
+        $default_start_date = $next_start->format('Y-m-d');
+
+        // Calculate next month's end (last day)
+        $next_end = clone $next_start;
+        $next_end->modify('last day of this month');
+        $default_end_date = $next_end->format('Y-m-d');
+
+        // Calculate payment date (e.g., 3 days after the new end date)
+        $next_payment = clone $next_end;
+        $next_payment->modify('+3 days'); // Adjust the number of days as needed
+        $default_payment_date = $next_payment->format('Y-m-d');
+
+        // Calculate next month's name
+        $default_period_name = $next_start->format('F Y') . ' Payroll';
+
+    } else {
+        // If no locked period exists or the most recent one isn't locked, use the original default logic
+        $today = new DateTime();
+        $default_start_date = $today->format('Y-m-01'); // First day of current month
+        $default_end_date = $today->format('Y-m-t');   // Last day of current month
+        $next_payment = clone $today;
+        $next_payment->modify('last day of this month')->modify('+3 days'); // Payment 3 days after month end
+        $default_payment_date = $next_payment->format('Y-m-d');
+        $default_period_name = $today->format('F Y') . ' Payroll';
+    }
+} catch (PDOException $e) {
+    // If there's an error fetching the most recent period, fallback to current month defaults
+    $today = new DateTime();
+    $default_start_date = $today->format('Y-m-01');
+    $default_end_date = $today->format('Y-m-t');
+    $next_payment = clone $today;
+    $next_payment->modify('last day of this month')->modify('+3 days');
+    $default_payment_date = $next_payment->format('Y-m-d');
+    $default_period_name = $today->format('F Y') . ' Payroll';
+    error_log("Error fetching most recent payroll period for defaults: " . $e->getMessage());
+}
+
 include '../../includes/header.php';
 ?>
 
@@ -103,7 +159,7 @@ include '../../includes/header.php';
                             <div class="mb-3">
                                 <label class="form-label">Period Name <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control" name="period_name" 
-                                       value="<?php echo htmlspecialchars($_POST['period_name'] ?? ''); ?>" 
+                                       value="<?php echo htmlspecialchars($_POST['period_name'] ?? $default_period_name); ?>" 
                                        placeholder="e.g., January 2024 Payroll" required>
                             </div>
                         </div>
@@ -125,21 +181,21 @@ include '../../includes/header.php';
                             <div class="mb-3">
                                 <label class="form-label">Start Date <span class="text-danger">*</span></label>
                                 <input type="date" class="form-control" name="start_date" 
-                                       value="<?php echo htmlspecialchars($_POST['start_date'] ?? ''); ?>" required>
+                                       value="<?php echo htmlspecialchars($_POST['start_date'] ?? $default_start_date); ?>" required>
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label">End Date <span class="text-danger">*</span></label>
                                 <input type="date" class="form-control" name="end_date" 
-                                       value="<?php echo htmlspecialchars($_POST['end_date'] ?? ''); ?>" required>
+                                       value="<?php echo htmlspecialchars($_POST['end_date'] ?? $default_end_date); ?>" required>
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label">Payment Date <span class="text-danger">*</span></label>
                                 <input type="date" class="form-control" name="payment_date" 
-                                       value="<?php echo htmlspecialchars($_POST['payment_date'] ?? ''); ?>" required>
+                                       value="<?php echo htmlspecialchars($_POST['payment_date'] ?? $default_payment_date); ?>" required>
                             </div>
                         </div>
                     </div>
@@ -227,6 +283,7 @@ include '../../includes/header.php';
                             case 'draft': echo 'secondary'; break;
                             case 'processing': echo 'warning'; break;
                             case 'approved': echo 'success'; break;
+                            case 'locked': echo 'dark'; break; // Added a style for locked
                             default: echo 'secondary';
                         }
                     ?>">
@@ -244,34 +301,9 @@ include '../../includes/header.php';
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Set default dates
-    const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    
-    // Format dates as YYYY-MM-DD
-    function formatDate(date) {
-        return date.toISOString().split('T')[0];
-    }
-
-    // Set default values if not already set
-    if (!document.querySelector('input[name="start_date"]').value) {
-        document.querySelector('input[name="start_date"]').value = formatDate(firstDay);
-    }
-    if (!document.querySelector('input[name="end_date"]').value) {
-        document.querySelector('input[name="end_date"]').value = formatDate(lastDay);
-    }
-    if (!document.querySelector('input[name="payment_date"]').value) {
-        const paymentDate = new Date(lastDay);
-        paymentDate.setDate(paymentDate.getDate() + 3); // 3 days after period end
-        document.querySelector('input[name="payment_date"]').value = formatDate(paymentDate);
-    }
-    if (!document.querySelector('input[name="period_name"]').value) {
-        const monthNames = ["January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"];
-        document.querySelector('input[name="period_name"]').value = 
-            monthNames[today.getMonth()] + ' ' + today.getFullYear() + ' Payroll';
-    }
+    // The JS logic for setting defaults is now handled by PHP, 
+    // so the original JS that set current month defaults is no longer needed.
+    // The form fields already have the correct values from PHP.
 });
 </script>
 

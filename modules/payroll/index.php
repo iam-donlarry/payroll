@@ -112,6 +112,15 @@ $(document).ready(function() {
         ]
     });
 });
+
+function getStatusBadge($status) {
+    if ($status === 'locked') {
+        return 'Closed';
+    }
+    // existing logic for other statuses
+    return ucfirst($status); // or whatever formatting you use
+}
+
 </script>
 
 <?php include '../../includes/footer.php'; ?>
