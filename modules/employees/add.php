@@ -663,19 +663,30 @@ function toggleSalarySection() {
 employeeTypeSelect.addEventListener('change', toggleSalarySection);
 window.addEventListener('DOMContentLoaded', toggleSalarySection);
 
-// Auto-generate employee code based on department and names
-document.querySelector('select[name="department_id"]').addEventListener('change', function() {
-    const departmentId = this.value;
-    const firstName = document.querySelector('input[name="first_name"]').value;
-    const lastName = document.querySelector('input[name="last_name"]').value;
-    if (departmentId && firstName && lastName) {
-        const deptCode = this.options[this.selectedIndex].text.substring(0, 3).toUpperCase();
-        const year = new Date().getFullYear().toString().substr(-2);
-        const initials = (firstName.charAt(0) + lastName.charAt(0)).toUpperCase();
-        document.querySelector('input[name="employee_code"]').value = 
-            deptCode + year + initials + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+// Auto-generate employee code based on employment date
+document.querySelector('input[name="employment_date"]').addEventListener('change', function() {
+    const employmentDate = new Date(this.value);
+    if (!isNaN(employmentDate.getTime())) { // Check if date is valid
+        // Get last 2 digits of year
+        const year = employmentDate.getFullYear().toString().substr(-2);
+        // Get month (add 1 because getMonth() is 0-indexed) and pad with leading zero
+        const month = (employmentDate.getMonth() + 1).toString().padStart(2, '0');
+        
+        // Get the next sequential number for this month
+        fetch(`../../api/employees/get_employee_count.php?year=${employmentDate.getFullYear()}&month=${employmentDate.getMonth() + 1}`)
+            .then(response => response.json())
+            .then(data => {
+                const sequence = (data.count + 1).toString().padStart(2, '0');
+                document.querySelector('input[name="employee_code"]').value = `${year}${month}${sequence}`;
+            })
+            .catch(error => {
+                console.error('Error fetching employee count:', error);
+                // Fallback to just the year and month if there's an error
+                document.querySelector('input[name="employee_code"]').value = `${year}${month}01`;
+            });
     }
 });
+
 
 function formatNaira(amount) {
     return '₦' + parseFloat(amount).toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');

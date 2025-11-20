@@ -41,17 +41,28 @@ try {
         throw new Exception("Payslip not found");
     }
     
-    // Get all payroll details for this payslip
+    // Get all payroll details for this payslip including loans and advances
     $detailsStmt = $db->prepare("
         SELECT 
             sc.component_id,
             sc.component_name, 
             sc.component_type,
-            pd.amount 
+            sc.component_code,
+            pd.amount,
+            pd.reference_id
         FROM payroll_details pd
         JOIN salary_components sc ON pd.component_id = sc.component_id
         WHERE pd.payroll_id = :payroll_id
-        ORDER BY sc.component_type, sc.component_name
+        ORDER BY 
+            CASE 
+                WHEN sc.component_type = 'earning' THEN 1
+                WHEN sc.component_type = 'allowance' THEN 2
+                WHEN sc.component_type = 'deduction' AND sc.component_code NOT IN ('LOAN', 'ADVANCE') THEN 3
+                WHEN sc.component_code = 'LOAN' THEN 4
+                WHEN sc.component_code = 'ADVANCE' THEN 5
+                ELSE 6
+            END,
+            sc.component_name
     ");
     $detailsStmt->execute([':payroll_id' => $payroll_id]);
     $allComponents = $detailsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -59,6 +70,8 @@ try {
     // Separate into earnings and deductions
     $earnings = [];
     $deductions = [];
+    $loans = [];
+    $advances = [];
     
     foreach ($allComponents as $component) {
         if ($component['component_type'] === 'earning' || $component['component_type'] === 'allowance') {
@@ -67,12 +80,56 @@ try {
                 'amount' => $component['amount']
             ];
         } else if ($component['component_type'] === 'deduction') {
-            $deductions[] = [
-                'component_name' => $component['component_name'],
-                'amount' => $component['amount']
-            ];
+            if ($component['component_code'] === 'LOAN') {
+                $loanName = 'Loan Repayment';
+                
+                // Only try to get loan details if reference_id is available
+                if (!empty($component['reference_id'])) {
+                    $loanStmt = $db->prepare("
+                        SELECT CONCAT('Loan - ', COALESCE(lt.loan_name, 'Repayment')) as display_name 
+                        FROM employee_loans el
+                        LEFT JOIN loan_types lt ON el.loan_type_id = lt.loan_type_id
+                        WHERE el.loan_id = :loan_id
+                    ");
+                    $loanStmt->execute([':loan_id' => $component['reference_id']]);
+                    $result = $loanStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($result) {
+                        $loanName = $result['display_name'];
+                    }
+                }
+                
+                $loans[] = [
+                    'component_name' => $loanName,
+                    'amount' => $component['amount']
+                ];
+            } else if ($component['component_code'] === 'ADVANCE') {
+                $advanceName = 'Salary Advance';
+                
+                // Only try to get advance details if reference_id is available
+                if (!empty($component['reference_id'])) {
+                    $advanceStmt = $db->prepare("
+                        SELECT CONCAT('Advance - ', COALESCE(purpose, 'Repayment')) as display_name 
+                        FROM salary_advances 
+                        WHERE advance_id = :advance_id
+                    ");
+                    $advanceStmt->execute([':advance_id' => $component['reference_id']]);
+                    $result = $advanceStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($result) {
+                        $advanceName = $result['display_name'];
+                    }
+                }
+            } else {
+                // Regular deductions
+                $deductions[] = [
+                    'component_name' => $component['component_name'],
+                    'amount' => $component['amount']
+                ];
+            }
         }
     }
+    
+    // Merge all deductions together with loans and advances
+    $allDeductions = array_merge($deductions, $loans, $advances);
     
 } catch (Exception $e) {
     error_log("Payslip view error: " . $e->getMessage());
@@ -198,7 +255,7 @@ include '../../includes/header.php';
                 <tbody>
                     <?php 
                     $totalDeductions = 0;
-                    foreach ($deductions as $deduction): 
+                    foreach ($allDeductions as $deduction): 
                         $totalDeductions += $deduction['amount'];
                     ?>
                     <tr>

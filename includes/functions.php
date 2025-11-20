@@ -6,7 +6,7 @@ function includeFile($path) {
 
 function base_url($path = '') {
     // Adjust to your localhost or live server root
-    return '/' . ltrim($path, '/');
+    return '/PAY/' . ltrim($path, '/');
 }
 function sanitizeInput($data) {
     if (is_array($data)) {

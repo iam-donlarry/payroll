@@ -10,11 +10,11 @@ $db = $database->getConnection();
 $auth = new Auth($db);
 
 // Check authentication
-if (!$auth->validateToken()) {
+/*if (!$auth->validateToken()) {
     http_response_code(401);
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit;
-}
+}*/
 
 $method = $_SERVER['REQUEST_METHOD'];
 

@@ -121,7 +121,7 @@ $loan_types = [];
 try {
     // Get employee loans
     $loans_query = "SELECT el.*, e.first_name, e.last_name, e.employee_code, 
-                           lt.loan_name, lt.interest_rate,
+                           lt.loan_name, remaining_balance, lt.interest_rate,
                            CONCAT(approver.first_name, ' ', approver.last_name) as approver_name
                     FROM employee_loans el
                     JOIN employees e ON el.employee_id = e.employee_id
@@ -217,6 +217,8 @@ include '../../includes/header.php';
                                 <th>Tenure</th>
                                 <th>Monthly Payment</th>
                                 <th>Application Date</th>
+                                <th>Amount Paid</th>
+                                <th>Balance</th>
                                 <th>Status</th>
                                 <th>Approved By</th>
                                 <th>Actions</th>
@@ -234,6 +236,11 @@ include '../../includes/header.php';
                                 <td><?php echo $loan['tenure_months']; ?> months</td>
                                 <td><?php echo formatCurrency($loan['monthly_repayment']); ?></td>
                                 <td><?php echo formatDate($loan['application_date']); ?></td>
+                                <?php
+                                $repaid_amount = $loan['loan_amount'] - $loan['remaining_balance'];
+                                ?>
+                                <td><?php echo formatCurrency($repaid_amount); ?></td>
+                                <td><?php echo formatCurrency($loan['remaining_balance']); ?></td>
                                 <td><?php echo getStatusBadge($loan['status']); ?></td>
                                 <td><?php echo htmlspecialchars($loan['approver_name'] ?? 'N/A'); ?></td>
                                 <td>
@@ -356,7 +363,6 @@ include '../../includes/header.php';
                                 <th>Paid Date</th>
                                 <th>Amount Paid</th>
                                 <th>Status</th>
-                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -397,15 +403,6 @@ include '../../includes/header.php';
                                 </td>
                                 <td><?php echo formatCurrency($repayment['amount_paid']); ?></td>
                                 <td><?php echo getStatusBadge($repayment['status']); ?></td>
-                                <td>
-                                    <?php if ($repayment['status'] == 'pending'): ?>
-                                    <button class="btn btn-sm btn-success mark-paid" 
-                                            data-id="<?php echo $repayment['repayment_id']; ?>"
-                                            data-amount="<?php echo $repayment['amount_due']; ?>">
-                                        <i class="fas fa-check"></i> Mark Paid
-                                    </button>
-                                    <?php endif; ?>
-                                </td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -914,52 +911,7 @@ $(document).ready(function() {
         });
     }
 
-    // Mark repayment as paid
-    $(document).on('click', '.mark-paid', function() {
-        const button = $(this);
-        const repaymentId = button.data('id');
-        const amount = button.data('amount');
-        
-        if (confirm(`Mark this repayment of ₦${amount.toLocaleString()} as paid?`)) {
-            // Show loading state
-            const originalHtml = button.html();
-            button.prop('disabled', true).html(`
-                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                Processing...
-            `);
-            
-            // Update repayment
-            $.ajax({
-                url: `../../api/loans/repayments.php?id=${repaymentId}`,
-                type: 'PUT',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    amount_paid: amount,
-                    payment_date: new Date().toISOString().split('T')[0]
-                }),
-                success: function(response) {
-                    if (response.success) {
-                        window.location.reload();
-                    } else {
-                        alert(response.message || 'Error updating repayment status.');
-                        button.prop('disabled', false).html(originalHtml);
-                    }
-                },
-                error: function(xhr) {
-                    let errorMessage = 'An error occurred while processing your request.';
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        errorMessage = response.message || errorMessage;
-                    } catch (e) {
-                        // Use default error message
-                    }
-                    alert(errorMessage);
-                    button.prop('disabled', false).html(originalHtml);
-                }
-            });
-        }
-    });
-
+    
     // View loan details
     $(document).on('click', '.view-loan', function() {
         const loanId = $(this).data('id');

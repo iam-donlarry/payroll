@@ -41,17 +41,27 @@ if (isset($_POST['mark_paid']) && $period_id) {
         );
         $updatePeriod->execute([':period_id' => $period_id]);
 
-        $db->commit();
-        $message = '<div class="alert alert-success">Payroll marked as paid and the period is now locked!</div>';
+        // NEW: Record loan and advance repayments for all payrolls in this period
+        $result = recordLoanAndAdvanceRepaymentsForPeriod($db, $period_id);
+        
+        if (!$result) {
+            throw new Exception("Failed to record loan and advance repayments");
+        }
 
+        $db->commit();
+        
         // Refresh the page to show updated status
-        header("Location: payslips.php?period_id=" . $period_id . "&success=Payroll+marked+as+paid+and+locked+successfully");
+        header("Location: payslips.php?period_id=" . $period_id . "&success=Payroll+marked+as+paid+and+loan+repayments+recorded+successfully");
         exit();
 
     } catch (PDOException $e) {
         $db->rollBack();
         error_log("Error marking payroll as paid: " . $e->getMessage());
         $message = '<div class="alert alert-danger">Error marking payroll as paid: ' . htmlspecialchars($e->getMessage()) . '</div>';
+    } catch (Exception $e) {
+        $db->rollBack();
+        error_log("Error marking payroll as paid: " . $e->getMessage());
+        $message = '<div class="alert alert-danger">Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
     }
 }
 
@@ -110,6 +120,183 @@ if (strtolower($period['status']) === 'locked') {
     $message = '<div class="alert alert-warning">This payroll period has already been processed and locked and cannot be modified.</div>';
 }
 
+// NEW FUNCTION: Record loan and advance repayments for entire period
+function recordLoanAndAdvanceRepaymentsForPeriod($db, $period_id) {
+    try {
+        // Get all payroll records for this period
+        $stmt = $db->prepare("
+            SELECT pm.payroll_id, pm.employee_id, pp.end_date 
+            FROM payroll_master pm
+            JOIN payroll_periods pp ON pm.period_id = pp.period_id
+            WHERE pm.period_id = :period_id
+        ");
+        $stmt->execute([':period_id' => $period_id]);
+        $payrolls = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (empty($payrolls)) {
+            throw new Exception("No payroll records found for this period");
+        }
+
+        // Get component IDs for loan and advance
+        $componentStmt = $db->prepare("SELECT component_id, component_code FROM salary_components WHERE component_code IN ('LOAN', 'ADVANCE')");
+        $componentStmt->execute();
+        $componentIds = [];
+        while ($row = $componentStmt->fetch(PDO::FETCH_ASSOC)) {
+            $componentIds[$row['component_code']] = $row['component_id'];
+        }
+
+        $success_count = 0;
+        $error_count = 0;
+
+        foreach ($payrolls as $payroll) {
+            $payroll_id = $payroll['payroll_id'];
+            $employee_id = $payroll['employee_id'];
+            $period_end = $payroll['end_date'];
+
+            try {
+                // Record loan repayments
+                if (isset($componentIds['LOAN'])) {
+                    $loan_query = "
+                        INSERT INTO loan_repayments (
+                            loan_id, payroll_id, amount_paid, 
+                            paid_date, status, created_at
+                        )
+                        SELECT 
+                            pd.reference_id as loan_id,
+                            :payroll_id,
+                            pd.amount as amount_paid,
+                            :paid_date,
+                            'paid',
+                            NOW()
+                        FROM payroll_details pd
+                        JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
+                        WHERE pm.employee_id = :employee_id
+                        AND pm.payroll_id = :payroll_id_2
+                        AND pd.component_id = :loan_component_id
+                        AND pd.amount > 0
+                    ";
+                    
+                    $stmt = $db->prepare($loan_query);
+                    $stmt->execute([
+                        ':payroll_id' => $payroll_id,
+                        ':payroll_id_2' => $payroll_id,
+                        ':employee_id' => $employee_id,
+                        ':paid_date' => $period_end,
+                        ':loan_component_id' => $componentIds['LOAN']
+                    ]);
+                    
+                    // Update loan remaining balance and status
+                    $update_loan_balance = "
+                        UPDATE employee_loans l
+                        JOIN payroll_details pd ON l.loan_id = pd.reference_id
+                        JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
+                        SET 
+                            l.remaining_balance = GREATEST(0, l.remaining_balance - pd.amount),
+                            l.updated_at = NOW(),
+                            l.status = CASE 
+                                WHEN (l.remaining_balance - pd.amount) <= 0 THEN 'completed'
+                                ELSE l.status 
+                            END
+                        WHERE pm.employee_id = :employee_id
+                        AND pm.payroll_id = :payroll_id
+                        AND pd.component_id = :loan_component_id
+                        AND pd.amount > 0
+                    ";
+                    
+                    $stmt = $db->prepare($update_loan_balance);
+                    $stmt->execute([
+                        ':employee_id' => $employee_id,
+                        ':payroll_id' => $payroll_id,
+                        ':loan_component_id' => $componentIds['LOAN']
+                    ]);
+                }
+
+                // Record advance repayments
+                if (isset($componentIds['ADVANCE'])) {
+                    $advance_query = "
+                        INSERT INTO advance_repayments (
+                            advance_id, payroll_id, amount_paid, 
+                            payment_date, status, created_at
+                        )
+                        SELECT 
+                            pd.reference_id as advance_id,
+                            :payroll_id,
+                            pd.amount as amount_paid,
+                            :payment_date,
+                            'paid',
+                            NOW()
+                        FROM payroll_details pd
+                        JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
+                        WHERE pm.employee_id = :employee_id
+                        AND pm.payroll_id = :payroll_id_2
+                        AND pd.component_id = :advance_component_id
+                        AND pd.amount > 0
+                    ";
+                    
+                    $stmt = $db->prepare($advance_query);
+                    $stmt->execute([
+                        ':payroll_id' => $payroll_id,
+                        ':payroll_id_2' => $payroll_id,
+                        ':employee_id' => $employee_id,
+                        ':payment_date' => $period_end,
+                        ':advance_component_id' => $componentIds['ADVANCE']
+                    ]);
+                    
+                    // Update advance total paid and status
+                    $update_advance_status = "
+                        UPDATE salary_advances sa
+                        JOIN payroll_details pd ON sa.advance_id = pd.reference_id
+                        JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
+                        SET 
+                            sa.total_repayment_amount = COALESCE((
+                                SELECT SUM(amount_paid) 
+                                FROM advance_repayments 
+                                WHERE advance_id = sa.advance_id 
+                                AND status = 'paid'
+                            ), 0),
+                            sa.status = CASE 
+                                WHEN sa.total_repayment_amount <= COALESCE((
+                                    SELECT SUM(amount_paid) 
+                                    FROM advance_repayments 
+                                    WHERE advance_id = sa.advance_id 
+                                    AND status = 'paid'
+                                ), 0) THEN 'completed'
+                                ELSE sa.status 
+                            END,
+                            sa.updated_at = NOW()
+                        WHERE pm.employee_id = :employee_id
+                        AND pm.payroll_id = :payroll_id
+                        AND pd.component_id = :advance_component_id
+                        AND pd.amount > 0
+                    ";
+                    
+                    $stmt = $db->prepare($update_advance_status);
+                    $stmt->execute([
+                        ':employee_id' => $employee_id,
+                        ':payroll_id' => $payroll_id,
+                        ':advance_component_id' => $componentIds['ADVANCE']
+                    ]);
+                }
+                
+                $success_count++;
+                
+            } catch (Exception $e) {
+                error_log("Error processing payroll ID {$payroll_id}: " . $e->getMessage());
+                $error_count++;
+                // Continue with next payroll record even if one fails
+                continue;
+            }
+        }
+
+        error_log("Loan repayment recording completed: {$success_count} successful, {$error_count} errors");
+        return true;
+        
+    } catch (PDOException $e) {
+        error_log("Error recording loan/advance repayments for period: " . $e->getMessage());
+        return false;
+    }
+}
+
 $page_title = "Payslips - " . ($period['period_name'] ?? 'Payroll Period');
 $body_class = "payslips-page";
 
@@ -128,7 +315,7 @@ include '../../includes/header.php';
             <i class="fas fa-file-excel me-2"></i>Export Bank Schedule
         </a>
         <?php if (in_array(strtolower($period['status']), ['processing', 'pending'])): ?>
-        <form method="POST" onsubmit="return confirm('Are you sure you want to mark this payroll as paid? This action cannot be undone.');">
+        <form method="POST" onsubmit="return confirm('Are you sure you want to mark this payroll as paid? This will record loan repayments and cannot be undone.');">
             <button type="submit" name="mark_paid" class="btn btn-success">
                 <i class="fas fa-check-circle me-2"></i>Mark as Paid
             </button>

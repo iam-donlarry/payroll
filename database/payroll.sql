@@ -240,6 +240,31 @@ CREATE TABLE loan_repayments (
     FOREIGN KEY (loan_id) REFERENCES employee_loans(loan_id) ON DELETE CASCADE
 );
 
+-- Create the advance_repayments table
+CREATE TABLE IF NOT EXISTS `advance_repayments` (
+  `repayment_id` int(11) NOT NULL AUTO_INCREMENT,
+  `advance_id` int(11) NOT NULL,
+  `payroll_id` int(11) DEFAULT NULL,
+  `amount_paid` decimal(12,2) NOT NULL,
+  `payment_date` date NOT NULL,
+  `payment_method` varchar(50) DEFAULT 'payroll',
+  `status` enum('pending','paid','failed','reversed') NOT NULL DEFAULT 'pending',
+  `transaction_reference` varchar(100) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`repayment_id`),
+  KEY `advance_id` (`advance_id`),
+  KEY `payroll_id` (`payroll_id`),
+  KEY `payment_date` (`payment_date`),
+  KEY `status` (`status`),
+  CONSTRAINT `advance_repayments_ibfk_1` FOREIGN KEY (`advance_id`) REFERENCES `salary_advances` (`advance_id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `advance_repayments_ibfk_2` FOREIGN KEY (`payroll_id`) REFERENCES `payroll_master` (`payroll_id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Add index on created_at for better query performance
+ALTER TABLE `advance_repayments` ADD INDEX `idx_created_at` (`created_at`);
+
 -- ==================== PAYROLL PROCESSING ====================
 
 -- Payroll periods table
