@@ -156,30 +156,28 @@ function recordLoanAndAdvanceRepaymentsForPeriod($db, $period_id) {
             try {
                 // Record loan repayments
                 if (isset($componentIds['LOAN'])) {
-                    $loan_query = "
-                        INSERT INTO loan_repayments (
-                            loan_id, payroll_id, amount_paid, 
-                            paid_date, status, created_at
-                        )
-                        SELECT 
-                            pd.reference_id as loan_id,
-                            :payroll_id,
-                            pd.amount as amount_paid,
-                            :paid_date,
-                            'paid',
-                            NOW()
-                        FROM payroll_details pd
-                        JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
+                    $loan_update_query = "
+                        UPDATE loan_repayments lr
+                        JOIN payroll_details pd 
+                            ON lr.loan_id = pd.reference_id
+                        JOIN payroll_master pm 
+                            ON pd.payroll_id = pm.payroll_id
+                        SET 
+                            lr.payroll_id   = :payroll_id,
+                            lr.amount_paid  = pd.amount,
+                            lr.paid_date    = :paid_date,
+                            lr.status       = 'paid'
                         WHERE pm.employee_id = :employee_id
-                        AND pm.payroll_id = :payroll_id_2
                         AND pd.component_id = :loan_component_id
                         AND pd.amount > 0
+                        AND lr.status = 'pending'
+                        ORDER BY lr.installment_number ASC
+                        LIMIT 1
                     ";
-                    
-                    $stmt = $db->prepare($loan_query);
+
+                    $stmt = $db->prepare($loan_update_query);
                     $stmt->execute([
                         ':payroll_id' => $payroll_id,
-                        ':payroll_id_2' => $payroll_id,
                         ':employee_id' => $employee_id,
                         ':paid_date' => $period_end,
                         ':loan_component_id' => $componentIds['LOAN']

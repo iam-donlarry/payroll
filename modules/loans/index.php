@@ -391,7 +391,7 @@ include '../../includes/header.php';
                                     <small class="text-muted"><?php echo htmlspecialchars($repayment['employee_code']); ?></small>
                                 </td>
                                 <td><?php echo htmlspecialchars($repayment['loan_name']); ?></td>
-                                <td>#<?php echo $repayment['installment_number']; ?></td>
+                                <td><?php echo $repayment['installment_number']; ?></td>
                                 <td><?php echo formatDate($repayment['due_date']); ?></td>
                                 <td><?php echo formatCurrency($repayment['amount_due']); ?></td>
                                 <td>

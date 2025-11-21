@@ -39,9 +39,17 @@ if ($_POST) {
         $errors[] = "Start date cannot be after end date.";
     }
 
-    if ($period_data['payment_date'] < $period_data['end_date']) {
-        $errors[] = "Payment date cannot be before end date.";
+   $day = date('d', strtotime($period_data['payment_date']));
+    $payMonth = date('m', strtotime($period_data['payment_date']));
+
+    if ($payMonth !== '12') { 
+        // Normal months rule
+        if ($day < 23 || $day > 27) {
+            $errors[] = "Payment date must be between the 23rd and 27th of the month.";
+        }
     }
+
+
 
     if (empty($errors)) {
         try {
@@ -104,10 +112,28 @@ try {
         $next_end->modify('last day of this month');
         $default_end_date = $next_end->format('Y-m-d');
 
-        // Calculate payment date (e.g., 3 days after the new end date)
-        $next_payment = clone $next_end;
-        $next_payment->modify('+3 days'); // Adjust the number of days as needed
-        $default_payment_date = $next_payment->format('Y-m-d');
+        // Determine the correct payment date: 27th of the month or previous Friday if weekend
+        $year = $next_end->format('Y');
+        $month = $next_end->format('m');
+
+        if ($month == '12') {
+            $payment_date = new DateTime("$year-12-20");
+            $dow = $payment_date->format('N'); // 6=Sat, 7=Sun
+
+            if ($dow == 6) $payment_date->modify('-1 day');   // Saturday → Friday 19th
+            elseif ($dow == 7) $payment_date->modify('-2 days'); // Sunday → Friday 18th
+
+        } else {
+            // normal 27th rule
+            $payment_date = new DateTime("$year-$month-27");
+            $dow = $payment_date->format('N');
+            if ($dow == 6) $payment_date->modify('-1 day');
+            elseif ($dow == 7) $payment_date->modify('-2 days');
+        }
+
+        $default_payment_date = $payment_date->format('Y-m-d');
+
+
 
         // Calculate next month's name
         $default_period_name = $next_start->format('F Y') . ' Payroll';
@@ -166,8 +192,7 @@ include '../../includes/header.php';
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label">Period Type <span class="text-danger">*</span></label>
-                                <select class="form-control" name="period_type" required>
-                                    <option value="">Select Type</option>
+                                <select class="form-control" name="period_type" required readonly>
                                     <option value="monthly" <?php echo ($_POST['period_type'] ?? '') == 'monthly' ? 'selected' : ''; ?>>Monthly</option>
                                     <option value="weekly" <?php echo ($_POST['period_type'] ?? '') == 'weekly' ? 'selected' : ''; ?>>Weekly</option>
                                     <option value="daily" <?php echo ($_POST['period_type'] ?? '') == 'daily' ? 'selected' : ''; ?>>Daily</option>
@@ -207,7 +232,7 @@ include '../../includes/header.php';
                     </div>
 
                     <div class="mt-4">
-                        <button type="submit" class="btn btn-primary btn-lg">
+                        <button type="submit" class="btn btn-primary btn">
                             <i class="fas fa-save me-2"></i>Create Period
                         </button>
                         <button type="reset" class="btn btn-secondary">Reset</button>
