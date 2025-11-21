@@ -92,6 +92,31 @@ $default_end_date = null;
 $default_payment_date = null;
 $default_period_name = null;
 
+/**
+ * Returns the correct payroll payment date for a given DateTime that is inside the target month.
+ * Rules:
+ *  - Normal months: 27th of that month, move back to Friday if 27th is weekend.
+ *  - December: 20th of December, move back to Friday if weekend.
+ */
+function getPayrollPaymentDateForMonth(DateTime $anyDateInMonth): DateTime {
+    $year = $anyDateInMonth->format('Y');
+    $month = $anyDateInMonth->format('m');
+
+    if ($month === '12') {
+        $payment = new DateTime("$year-12-20");
+        $dow = (int)$payment->format('N'); // 6=Sat,7=Sun
+        if ($dow === 6) $payment->modify('-1 day');   // Sat -> Fri 19
+        elseif ($dow === 7) $payment->modify('-2 days'); // Sun -> Fri 18
+    } else {
+        $payment = new DateTime("$year-$month-27");
+        $dow = (int)$payment->format('N');
+        if ($dow === 6) $payment->modify('-1 day');   // Sat -> Fri 26
+        elseif ($dow === 7) $payment->modify('-2 days'); // Sun -> Fri 25
+    }
+
+    return $payment;
+}
+
 try {
     // Fetch the most recent period (based on start_date, assuming newer periods have later start dates)
     $stmt = $db->prepare("SELECT start_date, end_date, status FROM payroll_periods ORDER BY start_date DESC LIMIT 1");
@@ -101,7 +126,7 @@ try {
     if ($most_recent_period && $most_recent_period['status'] === 'locked') {
         // If the most recent period is locked, calculate next month's dates
         $locked_end_date = new DateTime($most_recent_period['end_date']);
-        
+
         // Calculate next month's start (first day)
         $next_start = clone $locked_end_date;
         $next_start->modify('first day of next month');
@@ -112,53 +137,38 @@ try {
         $next_end->modify('last day of this month');
         $default_end_date = $next_end->format('Y-m-d');
 
-        // Determine the correct payment date: 27th of the month or previous Friday if weekend
-        $year = $next_end->format('Y');
-        $month = $next_end->format('m');
-
-        if ($month == '12') {
-            $payment_date = new DateTime("$year-12-20");
-            $dow = $payment_date->format('N'); // 6=Sat, 7=Sun
-
-            if ($dow == 6) $payment_date->modify('-1 day');   // Saturday → Friday 19th
-            elseif ($dow == 7) $payment_date->modify('-2 days'); // Sunday → Friday 18th
-
-        } else {
-            // normal 27th rule
-            $payment_date = new DateTime("$year-$month-27");
-            $dow = $payment_date->format('N');
-            if ($dow == 6) $payment_date->modify('-1 day');
-            elseif ($dow == 7) $payment_date->modify('-2 days');
-        }
-
+        // Use centralized payment date logic for next month
+        $payment_date = getPayrollPaymentDateForMonth($next_end);
         $default_payment_date = $payment_date->format('Y-m-d');
-
-
 
         // Calculate next month's name
         $default_period_name = $next_start->format('F Y') . ' Payroll';
 
     } else {
-        // If no locked period exists or the most recent one isn't locked, use the original default logic
+        // If no locked period exists or the most recent one isn't locked, fallback to current month defaults
         $today = new DateTime();
+
+        // Use current month's first & last day as the period
         $default_start_date = $today->format('Y-m-01'); // First day of current month
         $default_end_date = $today->format('Y-m-t');   // Last day of current month
-        $next_payment = clone $today;
-        $next_payment->modify('last day of this month')->modify('+3 days'); // Payment 3 days after month end
-        $default_payment_date = $next_payment->format('Y-m-d');
+
+        // Use the same centralized payment logic (27th or December rule) for the current month
+        $payment_date = getPayrollPaymentDateForMonth($today);
+        $default_payment_date = $payment_date->format('Y-m-d');
+
         $default_period_name = $today->format('F Y') . ' Payroll';
     }
 } catch (PDOException $e) {
-    // If there's an error fetching the most recent period, fallback to current month defaults
+    // Fallback to current month defaults on error, but still use correct payment logic
     $today = new DateTime();
     $default_start_date = $today->format('Y-m-01');
     $default_end_date = $today->format('Y-m-t');
-    $next_payment = clone $today;
-    $next_payment->modify('last day of this month')->modify('+3 days');
-    $default_payment_date = $next_payment->format('Y-m-d');
+    $payment_date = getPayrollPaymentDateForMonth($today);
+    $default_payment_date = $payment_date->format('Y-m-d');
     $default_period_name = $today->format('F Y') . ' Payroll';
     error_log("Error fetching most recent payroll period for defaults: " . $e->getMessage());
 }
+
 
 include '../../includes/header.php';
 ?>
