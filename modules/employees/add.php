@@ -68,6 +68,7 @@ if ($_POST) {
         'account_name' => sanitizeInput($_POST['account_name']),
         'bvn' => sanitizeInput($_POST['bvn']),
         'pension_pin' => sanitizeInput($_POST['pension_pin']),
+        'tax_id' => sanitizeInput($_POST['tax_id'] ?? ''),
         'create_user_account' => isset($_POST['create_user_account']),
         'username' => sanitizeInput($_POST['username']),
         'user_type' => sanitizeInput($_POST['user_type']),
@@ -117,6 +118,7 @@ if ($_POST) {
                          account_name = :account_name,
                          bvn = :bvn,
                          pension_pin = :pension_pin,
+                         tax_id = :tax_id,
                          status = 'active'";
             
             $stmt = $db->prepare($query);
@@ -147,6 +149,7 @@ if ($_POST) {
                 ':account_name' => $employee_data['account_name'],
                 ':bvn' => $employee_data['bvn'],
                 ':pension_pin' => $employee_data['pension_pin'],
+                ':tax_id' => $employee_data['tax_id'],
             ];
             
             $stmt->execute($employee_bind_data); // Execute with the clean array
@@ -521,6 +524,16 @@ include '../../includes/header.php';
                         <label class="form-label">Pension PIN</label>
                         <input type="text" class="form-control" name="pension_pin" 
                                value="<?php echo htmlspecialchars($_POST['pension_pin'] ?? ''); ?>">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Tax ID</label>
+                        <input type="text" class="form-control" name="tax_id" 
+                               value="<?php echo htmlspecialchars($_POST['tax_id'] ?? ''); ?>">
                     </div>
                 </div>
             </div>

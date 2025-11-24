@@ -81,6 +81,7 @@ if ($_POST) {
         'account_name' => sanitizeInput($_POST['account_name']),
         'bvn' => sanitizeInput($_POST['bvn']),
         'pension_pin' => sanitizeInput($_POST['pension_pin']),
+        'tax_id' => sanitizeInput($_POST['tax_id'] ?? ''),
         'status' => sanitizeInput($_POST['status'])
     ];
 
@@ -123,6 +124,7 @@ if ($_POST) {
                      account_name = :account_name,
                      bvn = :bvn,
                      pension_pin = :pension_pin,
+                     tax_id = :tax_id,
                      status = :status
                      WHERE employee_id = :employee_id";
             
@@ -380,6 +382,13 @@ include '../../includes/header.php';
                         <label class="form-label">Pension PIN</label>
                         <input type="text" class="form-control" name="pension_pin" 
                                value="<?php echo htmlspecialchars($employee['pension_pin']); ?>">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Tax ID</label>
+                        <input type="text" class="form-control" name="tax_id" 
+                               value="<?php echo htmlspecialchars($employee['tax_id'] ?? ''); ?>">
                     </div>
                 </div>
             </div>

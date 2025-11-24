@@ -308,10 +308,27 @@ include '../../includes/header.php';
         </a>
         <?php echo htmlspecialchars($period['period_name'] ?? 'Payslips'); ?>
     </h1>
-    <div>
-        <a href="export_bank_schedule.php?period_id=<?php echo htmlspecialchars($period_id); ?>" class="btn btn-success mb-3">
-            <i class="fas fa-file-excel me-2"></i>Export Bank Schedule
-        </a>
+    <div class="btn-group mb-3">
+        <button type="button" class="btn btn-success dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-file-export me-2"></i>Export
+        </button>
+        <ul class="dropdown-menu">
+            <li>
+                <a class="dropdown-item" href="export_bank_schedule.php?period_id=<?php echo htmlspecialchars($period_id); ?>&type=bank">
+                    <i class="fas fa-university me-2"></i>Bank Schedule
+                </a>
+            </li>
+            <li>
+                <a class="dropdown-item" href="export_bank_schedule.php?period_id=<?php echo htmlspecialchars($period_id); ?>&type=pension">
+                    <i class="fas fa-piggy-bank me-2"></i>Pension Schedule
+                </a>
+            </li>
+            <li>
+                <a class="dropdown-item" href="export_paye_schedule.php?period_id=<?php echo htmlspecialchars($period_id); ?>">
+                    <i class="fas fa-file-invoice-dollar me-2"></i>PAYE Schedule
+                </a>
+            </li>
+        </ul>
         <?php if (in_array(strtolower($period['status']), ['processing', 'pending'])): ?>
         <form method="POST" onsubmit="return confirm('Are you sure you want to mark this payroll as paid? This will record loan repayments and cannot be undone.');">
             <button type="submit" name="mark_paid" class="btn btn-success">

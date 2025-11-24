@@ -235,6 +235,10 @@ include '../../includes/header.php';
                             <?php echo htmlspecialchars($employee['pension_pin'] ?? 'Not provided'); ?>
                         </div>
                         <div class="mb-3">
+                            <strong>Tax ID:</strong><br>
+                            <?php echo htmlspecialchars($employee['tax_id'] ?? 'Not provided'); ?>
+                        </div>
+                        <div class="mb-3">
                             <strong>Insurance Number:</strong><br>
                             <?php echo htmlspecialchars($employee['insurance_number'] ?? 'Not provided'); ?>
                         </div>
