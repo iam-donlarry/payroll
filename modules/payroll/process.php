@@ -318,52 +318,103 @@ function processPayroll($db, $period_id) {
 
 /**
  * Mark payroll as paid and record loan/advance repayments
- * This should be called only when payroll is actually paid out
+ * 
+ * @param PDO $db Database connection
+ * @param int $payroll_id The ID of the payroll to mark as paid
+ * @return array Result of the operation with success status and message
  */
 function markPayrollAsPaid($db, $payroll_id) {
     try {
-        // Get payroll details including employee and period info
+        // Start transaction
+        $db->beginTransaction();
+
+        // Get payroll details with employee and period info
         $stmt = $db->prepare("
-            SELECT pm.*, pp.end_date, pm.employee_id 
+            SELECT 
+                pm.*, 
+                e.employee_id, 
+                e.employee_code, 
+                e.first_name, 
+                e.last_name,
+                pp.start_date, 
+                pp.end_date,
+                pp.period_name
             FROM payroll_master pm
+            JOIN employees e ON pm.employee_id = e.employee_id
             JOIN payroll_periods pp ON pm.period_id = pp.period_id
-            WHERE pm.payroll_id = ?
+            WHERE pm.payroll_id = ? 
+            AND pm.payment_status IN ('pending', 'partial')
+            FOR UPDATE
         ");
         $stmt->execute([$payroll_id]);
         $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$payroll) {
-            return "Payroll record not found.";
+            throw new Exception("Payroll not found or already fully paid");
         }
 
-        // Begin transaction
-        $db->beginTransaction();
+        // Record loan and advance repayments
+        $loan_updates = recordLoanAndAdvanceRepayments(
+            $db, 
+            $payroll_id, 
+            $payroll['employee_id'], 
+            $payroll['end_date']
+        );
 
-        try {
-            // Update payroll status to paid
-            $stmt = $db->prepare("UPDATE payroll_master SET payment_status = 'paid', payment_date = NOW() WHERE payroll_id = ?");
-            $stmt->execute([$payroll_id]);
+        // Update payroll status to paid
+        $stmt = $db->prepare("
+            UPDATE payroll_master 
+            SET 
+                payment_status = 'paid',
+                payment_date = CURDATE(),
+                paid_amount = net_salary,  -- Set paid amount to net salary when fully paid
+                updated_at = NOW()
+            WHERE payroll_id = ?
+        ");
+        $stmt->execute([$payroll_id]);
 
-            // Record loan and advance repayments
-            $result = recordLoanAndAdvanceRepayments($db, $payroll_id, $payroll['employee_id'], $payroll['end_date']);
-            
-            if (!$result) {
-                throw new Exception("Failed to record loan repayments");
-            }
+        // Commit transaction
+        $db->commit();
 
-            // Commit transaction
-            $db->commit();
-            
-            return "✅ Payroll marked as paid and loan repayments recorded successfully.";
-            
-        } catch (Exception $e) {
-            // Rollback transaction on error
+        // Log the payment
+        error_log(sprintf(
+            "Payroll marked as paid - Payroll ID: %d, Employee: %s %s, Period: %s, Net Salary: %s",
+            $payroll_id,
+            $payroll['first_name'],
+            $payroll['last_name'],
+            $payroll['period_name'],
+            number_format($payroll['net_salary'], 2)
+        ));
+
+        return [
+            'success' => true,
+            'message' => 'Payroll marked as paid successfully',
+            'loan_updates' => $loan_updates,
+            'payroll' => [
+                'employee_name' => $payroll['first_name'] . ' ' . $payroll['last_name'],
+                'period' => $payroll['period_name'],
+                'net_salary' => $payroll['net_salary'],
+                'payment_date' => date('Y-m-d')
+            ]
+        ];
+
+    } catch (Exception $e) {
+        // Rollback transaction on error
+        if ($db->inTransaction()) {
             $db->rollBack();
-            throw $e;
         }
-
-    } catch (PDOException $e) {
-        return "❌ Error marking payroll as paid: " . $e->getMessage();
+        
+        // Log the error
+        error_log(sprintf(
+            "Error marking payroll as paid - Payroll ID: %d, Error: %s",
+            $payroll_id,
+            $e->getMessage()
+        ));
+        
+        return [
+            'success' => false, 
+            'message' => 'Failed to mark payroll as paid: ' . $e->getMessage()
+        ];
     }
 }
 
@@ -476,8 +527,15 @@ function calculateGrossSalaryFromDB($db, $employee_id) {
 
 /**
  * Get loan and advance deductions for an employee
+ * 
+ * @param PDO $db Database connection
+ * @param int $employee_id Employee ID
+ * @param string $period_start Period start date (Y-m-d)
+ * @param string $period_end Period end date (Y-m-d)
+ * @param float $gross_salary Employee's gross salary for the period
+ * @return array Array containing total deductions and components
  */
-function getLoanAndAdvanceDeductions($db, $employee_id, $period_start, $period_end) {
+function getLoanAndAdvanceDeductions($db, $employee_id, $period_start, $period_end, $gross_salary = 0) {
     $deductions = [
         'total' => 0,
         'components' => []
@@ -525,34 +583,23 @@ function getLoanAndAdvanceDeductions($db, $employee_id, $period_start, $period_e
         $advance_query = "
             SELECT 
                 a.advance_id,
-                a.monthly_repayment_amount as amount,
+                a.advance_amount as amount,  -- Use the full advance amount
                 'ADVANCE' as component_code,
-                'Salary Advance' as component_name
+                'Salary Advance' as component_name,
+                a.advance_amount as total_advance,
+                0 as already_deducted  -- Since we're deducting the full amount, already_deducted is 0
             FROM salary_advances a
-            WHERE a.employee_id = ?
+            WHERE a.employee_id = :employee_id
             AND a.status = 'approved'
-            AND a.total_repayment_amount > COALESCE((
-                SELECT COALESCE(SUM(amount_paid), 0)
-                FROM advance_repayments
-                WHERE advance_id = a.advance_id
-                AND status = 'paid'
-            ), 0)
-            AND a.repayment_start_date <= ?
-            AND (a.repayment_end_date IS NULL OR a.repayment_end_date >= ?)
-            AND NOT EXISTS (
-                SELECT 1 FROM advance_repayments 
-                WHERE advance_id = a.advance_id 
-                AND DATE_FORMAT(payment_date, '%Y-%m') = DATE_FORMAT(?, '%Y-%m')
-                AND status = 'paid'
-            )
+            AND a.deduction_date IS NOT NULL
+            AND DATE_FORMAT(a.deduction_date, '%Y-%m') = DATE_FORMAT(:period_date, '%Y-%m')
+            AND (a.deduction_payroll_id IS NULL OR a.deduction_payroll_id = 0)
         ";
         
         $stmt = $db->prepare($advance_query);
         $stmt->execute([
-            $employee_id,
-            $period_end,
-            $period_end,
-            $period_start
+            ':employee_id' => $employee_id,
+            ':period_date' => $period_end
         ]);
         $advances = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -570,35 +617,27 @@ function getLoanAndAdvanceDeductions($db, $employee_id, $period_start, $period_e
 
         // Process advance deductions
         foreach ($advances as $advance) {
-            // Calculate remaining balance
-            $stmt = $db->prepare("
-                SELECT (total_repayment_amount - COALESCE((
-                    SELECT SUM(amount_paid) 
-                    FROM advance_repayments 
-                    WHERE advance_id = :advance_id 
-                    AND status = 'paid'
-                ), 0)) as remaining_balance
-                FROM salary_advances 
-                WHERE advance_id = :advance_id2
-            ");
-            $stmt->execute([
-                ':advance_id' => $advance['advance_id'],
-                ':advance_id2' => $advance['advance_id']
-            ]);
-            $remaining = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            // If remaining is less than the scheduled amount, adjust the payment
-            $amount = min($advance['amount'], $remaining['remaining_balance']);
+            // Ensure amount is not negative and doesn't exceed remaining balance
+            $remaining_balance = $advance['total_advance'] - $advance['already_deducted'];
+            $amount = min($advance['amount'], $remaining_balance);
             
             if ($amount > 0) {
                 $deduction = [
                     'component_name' => $advance['component_name'],
                     'component_code' => $advance['component_code'],
                     'amount' => $amount,
-                    'reference_id' => $advance['advance_id']
+                    'reference_id' => $advance['advance_id'],
+                    'total_advance' => $advance['total_advance'],
+                    'already_deducted' => $advance['already_deducted']
                 ];
                 $deductions['components'][] = $deduction;
                 $deductions['total'] += $amount;
+                
+                // Mark this advance to be updated when payroll is processed
+                $deductions['advance_updates'][] = [
+                    'advance_id' => $advance['advance_id'],
+                    'amount' => $amount
+                ];
             }
         }
 
@@ -682,57 +721,19 @@ function recordLoanAndAdvanceRepayments($db, $payroll_id, $employee_id, $period_
 
         // Record advance repayments
         if (isset($componentIds['ADVANCE'])) {
-            $advance_query = "
-                INSERT INTO advance_repayments (
-                    advance_id, payroll_id, amount_paid, 
-                    payment_date, status, created_at
-                )
-                SELECT 
-                    pd.reference_id as advance_id,
-                    :payroll_id,
-                    pd.amount as amount_paid,
-                    :payment_date,
-                    'paid',
-                    NOW()
-                FROM payroll_details pd
-                JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
-                WHERE pm.employee_id = :employee_id
-                AND pm.payroll_id = :payroll_id_2
-                AND pd.component_id = :advance_component_id
-                AND pd.amount > 0
-            ";
-            
-            $stmt = $db->prepare($advance_query);
-            $stmt->execute([
-                ':payroll_id' => $payroll_id,
-                ':payroll_id_2' => $payroll_id,
-                ':employee_id' => $employee_id,
-                ':payment_date' => $period_end,
-                ':advance_component_id' => $componentIds['ADVANCE']
-            ]);
-            
-            // Update advance total paid and status
+            // Update advance total paid and status directly in salary_advances
             $update_advance_status = "
                 UPDATE salary_advances sa
                 JOIN payroll_details pd ON sa.advance_id = pd.reference_id
                 JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
                 SET 
-                    sa.total_paid = COALESCE((
-                        SELECT SUM(amount_paid) 
-                        FROM advance_repayments 
-                        WHERE advance_id = sa.advance_id 
-                        AND status = 'paid'
-                    ), 0),
+                    sa.total_paid = COALESCE(sa.total_paid, 0) + pd.amount,
                     sa.status = CASE 
-                        WHEN sa.total_repayment_amount <= COALESCE((
-                            SELECT SUM(amount_paid) 
-                            FROM advance_repayments 
-                            WHERE advance_id = sa.advance_id 
-                            AND status = 'paid'
-                        ), 0) THEN 'completed'
+                        WHEN (COALESCE(sa.total_paid, 0) + pd.amount) >= sa.advance_amount THEN 'repaid'
                         ELSE sa.status 
                     END,
-                    sa.updated_at = NOW()
+                    sa.updated_at = NOW(),
+                    sa.last_payment_date = :payment_date
                 WHERE pm.employee_id = :employee_id
                 AND pm.payroll_id = :payroll_id
                 AND pd.component_id = :advance_component_id
@@ -743,8 +744,48 @@ function recordLoanAndAdvanceRepayments($db, $payroll_id, $employee_id, $period_
             $stmt->execute([
                 ':employee_id' => $employee_id,
                 ':payroll_id' => $payroll_id,
+                ':payment_date' => $period_end,
                 ':advance_component_id' => $componentIds['ADVANCE']
             ]);
+            
+            // Log the advance payment
+            $log_advance_payment = "
+                INSERT INTO salary_advance_payments (
+                    advance_id, employee_id, amount_paid, 
+                    payment_date, payment_method, reference,
+                    status, created_at
+                )
+                SELECT 
+                    pd.reference_id as advance_id,
+                    :employee_id,
+                    pd.amount as amount_paid,
+                    :payment_date,
+                    'salary_deduction',
+                    CONCAT('PAYROLL-', :payroll_id_ref),
+                    'completed',
+                    NOW()
+                FROM payroll_details pd
+                JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
+                WHERE pm.employee_id = :employee_id_2
+                AND pm.payroll_id = :payroll_id_2
+                AND pd.component_id = :advance_component_id_2
+                AND pd.amount > 0
+            ";
+            
+            try {
+                $stmt = $db->prepare($log_advance_payment);
+                $stmt->execute([
+                    ':employee_id' => $employee_id,
+                    ':employee_id_2' => $employee_id,
+                    ':payroll_id_2' => $payroll_id,
+                    ':payroll_id_ref' => $payroll_id,
+                    ':payment_date' => $period_end,
+                    ':advance_component_id_2' => $componentIds['ADVANCE']
+                ]);
+            } catch (PDOException $e) {
+                // If salary_advance_payments table doesn't exist, just log the error and continue
+                error_log("Notice: Could not log advance payment (table may not exist): " . $e->getMessage());
+            }
         }
         
         return true;
@@ -806,7 +847,7 @@ function getDeductions($db, $employee_id, $gross_salary, $period_start = null, $
     $paye = calculatePayrollPAYE($gross_salary);
     
     // Get loan and advance deductions
-    $loan_advance_deductions = getLoanAndAdvanceDeductions($db, $employee_id, $period_start, $period_end);
+    $loan_advance_deductions = getLoanAndAdvanceDeductions($db, $employee_id, $period_start, $period_end, $gross_salary);
     
     // Add standard deductions first
     if ($pension > 0) {

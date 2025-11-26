@@ -67,6 +67,9 @@ $current_user = $is_logged_in ? [
                         <a class="nav-link" href="<?= base_url('modules/loans/'); ?>"><i class="fas fa-hand-holding-usd me-1"></i>Loans</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="<?= base_url('modules/advance/'); ?>"><i class="fas fa-money-bill-wave me-1"></i>Salary Advance</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="<?= base_url('modules/reports/'); ?>"><i class="fas fa-chart-bar me-1"></i>Reports</a>
                     </li>
                     <?php if (in_array($_SESSION['user_type'], ['admin', 'hr_manager'])): ?>

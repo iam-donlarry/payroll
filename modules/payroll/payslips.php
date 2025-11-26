@@ -120,7 +120,7 @@ if (strtolower($period['status']) === 'locked') {
     $message = '<div class="alert alert-warning">This payroll period has already been processed and locked and cannot be modified.</div>';
 }
 
-// NEW FUNCTION: Record loan and advance repayments for entire period
+// Record loan and advance repayments for entire period
 function recordLoanAndAdvanceRepaymentsForPeriod($db, $period_id) {
     try {
         // Get all payroll records for this period
@@ -211,68 +211,69 @@ function recordLoanAndAdvanceRepaymentsForPeriod($db, $period_id) {
 
                 // Record advance repayments
                 if (isset($componentIds['ADVANCE'])) {
-                    $advance_query = "
-                        INSERT INTO advance_repayments (
-                            advance_id, payroll_id, amount_paid, 
-                            payment_date, status, created_at
-                        )
-                        SELECT 
-                            pd.reference_id as advance_id,
-                            :payroll_id,
-                            pd.amount as amount_paid,
-                            :payment_date,
-                            'paid',
-                            NOW()
-                        FROM payroll_details pd
-                        JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
-                        WHERE pm.employee_id = :employee_id
-                        AND pm.payroll_id = :payroll_id_2
-                        AND pd.component_id = :advance_component_id
-                        AND pd.amount > 0
-                    ";
-                    
-                    $stmt = $db->prepare($advance_query);
-                    $stmt->execute([
-                        ':payroll_id' => $payroll_id,
-                        ':payroll_id_2' => $payroll_id,
-                        ':employee_id' => $employee_id,
-                        ':payment_date' => $period_end,
-                        ':advance_component_id' => $componentIds['ADVANCE']
-                    ]);
-                    
-                    // Update advance total paid and status
-                    $update_advance_status = "
+                    // Update salary_advances table directly
+                   $update_advance = "
                         UPDATE salary_advances sa
                         JOIN payroll_details pd ON sa.advance_id = pd.reference_id
                         JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
                         SET 
-                            sa.total_repayment_amount = COALESCE((
-                                SELECT SUM(amount_paid) 
-                                FROM advance_repayments 
-                                WHERE advance_id = sa.advance_id 
-                                AND status = 'paid'
-                            ), 0),
+                            sa.deducted_amount = COALESCE(sa.deducted_amount, 0) + pd.amount,
+                            sa.deduction_payroll_id = :payroll_id,
                             sa.status = CASE 
-                                WHEN sa.total_repayment_amount <= COALESCE((
-                                    SELECT SUM(amount_paid) 
-                                    FROM advance_repayments 
-                                    WHERE advance_id = sa.advance_id 
-                                    AND status = 'paid'
-                                ), 0) THEN 'completed'
+                                WHEN (COALESCE(sa.deducted_amount, 0) + pd.amount) >= sa.advance_amount 
+                                THEN 'deducted' 
                                 ELSE sa.status 
-                            END,
-                            sa.updated_at = NOW()
+                            END
                         WHERE pm.employee_id = :employee_id
-                        AND pm.payroll_id = :payroll_id
+                        AND pm.payroll_id = :payroll_id_2
                         AND pd.component_id = :advance_component_id
                         AND pd.amount > 0
+                        AND sa.status = 'approved' 
+                        AND (sa.deduction_payroll_id IS NULL OR sa.deduction_payroll_id = 0)
                     ";
                     
-                    $stmt = $db->prepare($update_advance_status);
+                    $stmt = $db->prepare($update_advance);
                     $stmt->execute([
-                        ':employee_id' => $employee_id,
                         ':payroll_id' => $payroll_id,
+                        ':payroll_id_2' => $payroll_id,
+                        ':employee_id' => $employee_id,
                         ':advance_component_id' => $componentIds['ADVANCE']
+                    ]);
+
+                    // Log the deduction
+                    $log_deduction = "
+                        INSERT INTO payroll_logs (
+                            payroll_id, employee_id, log_type, 
+                            description, amount, reference_id, 
+                            created_at
+                        )
+                        SELECT 
+                            :payroll_id_log,
+                            :employee_id_log,
+                            'advance_deduction',
+                            CONCAT('Advance deduction - ', 
+                                   FORMAT(pd.amount, 2), 
+                                   ' for advance ID: ', 
+                                   sa.advance_id),
+                            pd.amount,
+                            sa.advance_id,
+                            NOW()
+                        FROM payroll_details pd
+                        JOIN salary_advances sa ON pd.reference_id = sa.advance_id
+                        JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
+                        WHERE pm.employee_id = :employee_id_where
+                        AND pm.payroll_id = :payroll_id_where
+                        AND pd.component_id = :advance_component_id_where
+                        AND pd.amount > 0
+                    ";
+
+                    $stmt = $db->prepare($log_deduction);
+                    $stmt->execute([
+                        ':payroll_id_log' => $payroll_id,
+                        ':employee_id_log' => $employee_id,
+                        ':employee_id_where' => $employee_id,
+                        ':payroll_id_where' => $payroll_id,
+                        ':advance_component_id_where' => $componentIds['ADVANCE']
                     ]);
                 }
                 
@@ -286,7 +287,7 @@ function recordLoanAndAdvanceRepaymentsForPeriod($db, $period_id) {
             }
         }
 
-        error_log("Loan repayment recording completed: {$success_count} successful, {$error_count} errors");
+        error_log("Loan and advance repayment recording completed: {$success_count} successful, {$error_count} errors");
         return true;
         
     } catch (PDOException $e) {

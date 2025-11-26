@@ -113,9 +113,8 @@ if (isset($_GET['id'])) {
     }
 }
 
-// Get loans and advances
+// Get loans and loan types
 $loans = [];
-$advances = [];
 $loan_types = [];
 
 try {
@@ -131,17 +130,6 @@ try {
     $loans_stmt = $db->prepare($loans_query);
     $loans_stmt->execute();
     $loans = $loans_stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Get salary advances
-    $advances_query = "SELECT sa.*, e.first_name, e.last_name, e.employee_code,
-                              CONCAT(approver.first_name, ' ', approver.last_name) as approver_name
-                       FROM salary_advances sa
-                       JOIN employees e ON sa.employee_id = e.employee_id
-                       LEFT JOIN employees approver ON sa.approved_by = approver.employee_id
-                       ORDER BY sa.request_date DESC";
-    $advances_stmt = $db->prepare($advances_query);
-    $advances_stmt->execute();
-    $advances = $advances_stmt->fetchAll(PDO::FETCH_ASSOC);
 
     // Get loan types
     $types_query = "SELECT * FROM loan_types WHERE is_active = 1 ORDER BY loan_name";
@@ -174,13 +162,10 @@ include '../../includes/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="h3 mb-0 text-gray-800">Loans & Advances Management</h1>
+    <h1 class="h3 mb-0 text-gray-800">Loans Management</h1>
     <div>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#applyLoanModal">
             <i class="fas fa-hand-holding-usd me-2"></i>Apply for Loan
-        </button>
-        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#requestAdvanceModal">
-            <i class="fas fa-money-bill-wave me-2"></i>Request Advance
         </button>
     </div>
 </div>
@@ -190,9 +175,6 @@ include '../../includes/header.php';
 <ul class="nav nav-tabs" id="loansTabs">
     <li class="nav-item">
         <a class="nav-link active" data-bs-toggle="tab" href="#loans">Employee Loans</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#advances">Salary Advances</a>
     </li>
     <li class="nav-item">
         <a class="nav-link" data-bs-toggle="tab" href="#repayments">Repayments</a>
@@ -269,70 +251,6 @@ include '../../includes/header.php';
                                             <i class="fas fa-money-bill"></i>
                                         </button>
                                         <?php endif; ?>
-                                    </div>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Salary Advances Tab -->
-    <div class="tab-pane fade" id="advances">
-        <div class="card shadow">
-            <div class="card-header py-3">
-                <h6 class="m-0 font-weight-bold text-primary">Salary Advances</h6>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-bordered" id="advancesTable">
-                        <thead>
-                            <tr>
-                                <th>Employee</th>
-                                <th>Amount</th>
-                                <th>Request Date</th>
-                                <th>Repayment Period</th>
-                                <th>Monthly Repayment</th>
-                                <th>Status</th>
-                                <th>Approved By</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($advances as $advance): ?>
-                            <tr>
-                                <td>
-                                    <strong><?php echo htmlspecialchars($advance['first_name'] . ' ' . $advance['last_name']); ?></strong><br>
-                                    <small class="text-muted"><?php echo htmlspecialchars($advance['employee_code']); ?></small>
-                                </td>
-                                <td><?php echo formatCurrency($advance['advance_amount']); ?></td>
-                                <td><?php echo formatDate($advance['request_date']); ?></td>
-                                <td><?php echo $advance['repayment_period_months']; ?> months</td>
-                                <td><?php echo formatCurrency($advance['monthly_repayment_amount']); ?></td>
-                                <td><?php echo getStatusBadge($advance['status']); ?></td>
-                                <td><?php echo htmlspecialchars($advance['approver_name'] ?? 'N/A'); ?></td>
-                                <td>
-                                    <div class="btn-group btn-group-sm">
-                                        <?php if ($advance['status'] == 'pending' && $auth->hasPermission('admin')): ?>
-                                        <a href="?action=approve_advance&id=<?php echo $advance['advance_id']; ?>" 
-                                           class="btn btn-success" title="Approve"
-                                           onclick="return confirm('Approve this salary advance?')">
-                                            <i class="fas fa-check"></i>
-                                        </a>
-                                        <a href="?action=reject_advance&id=<?php echo $advance['advance_id']; ?>" 
-                                           class="btn btn-danger" title="Reject"
-                                           onclick="return confirm('Reject this salary advance?')">
-                                            <i class="fas fa-times"></i>
-                                        </a>
-                                        <?php endif; ?>
-                                        <button class="btn btn-info view-advance" 
-                                                data-id="<?php echo $advance['advance_id']; ?>"
-                                                title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -434,8 +352,7 @@ include '../../includes/header.php';
                                     <option value="<?php echo $type['loan_type_id']; ?>" 
                                             data-max-amount="<?php echo $type['max_amount'] ?? ''; ?>"
                                             data-max-tenure="<?php echo $type['max_tenure_months'] ?? ''; ?>">
-                                        <?php echo htmlspecialchars($type['loan_name'] . 
-                                            ($type['max_amount'] ? ' - Max: ' . formatCurrency($type['max_amount']) : '')); ?>
+                                        <?php echo htmlspecialchars($type['loan_name']); ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -491,10 +408,6 @@ include '../../includes/header.php';
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="mb-2">
-                                        <small class="text-muted">Interest Rate:</small>
-                                        <div class="fw-bold">0%</div>
-                                    </div>
-                                    <div class="mb-2">
                                         <small class="text-muted">Monthly Payment:</small>
                                         <div id="monthlyPayment" class="fw-bold">-</div>
                                     </div>
@@ -503,11 +416,6 @@ include '../../includes/header.php';
                                     <div class="mb-2">
                                         <small class="text-muted">Total Repayable:</small>
                                         <div id="totalRepayable" class="fw-bold">-</div>
-                                    </div>
-                                    <!-- Optionally hide Total Interest or show 0 -->
-                                    <div class="mb-2">
-                                        <small class="text-muted">Total Interest:</small>
-                                        <div class="fw-bold">₦0.00</div>
                                     </div>
                                 </div>
                             </div>
@@ -526,63 +434,6 @@ include '../../includes/header.php';
     </div>
 </div>
 
-<!-- Request Advance Modal -->
-<div class="modal fade" id="requestAdvanceModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Request Salary Advance</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="requestAdvanceForm">
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Employee *</label>
-                        <select class="form-control" name="employee_id" required>
-                            <option value="">Select Employee</option>
-                            <?php foreach ($employees as $emp): ?>
-                            <option value="<?php echo $emp['employee_id']; ?>">
-                                <?php echo htmlspecialchars($emp['first_name'] . ' ' . $emp['last_name'] . ' (' . $emp['employee_code'] . ')'); ?>
-                            </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Advance Amount (₦) *</label>
-                        <input type="number" class="form-control" name="advance_amount" step="0.01" min="0" required>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Repayment Period (Months) *</label>
-                        <select class="form-control" name="repayment_period_months" required>
-                            <option value="1">1 Month</option>
-                            <option value="2">2 Months</option>
-                            <option value="3" selected>3 Months</option>
-                            <option value="4">4 Months</option>
-                            <option value="5">5 Months</option>
-                            <option value="6">6 Months</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Reason for Advance *</label>
-                        <textarea class="form-control" name="reason" rows="3" required placeholder="Please provide a reason for this salary advance..."></textarea>
-                    </div>
-                    
-                    <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        Salary advances are typically limited to 50% of net monthly salary and subject to approval.
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="submit" class="btn btn-primary">Request Advance</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
 <?php include '../../includes/footer.php'; ?>
 <script>
 $(document).ready(function() {
@@ -591,13 +442,6 @@ $(document).ready(function() {
         responsive: true,
         pageLength: 25,
         order: [[6, 'desc']],
-        dom: '<"d-flex justify-content-between align-items-center mb-3"f<"ms-3"l>>rtip'
-    });
-
-    const advancesTable = $('#advancesTable').DataTable({
-        responsive: true,
-        pageLength: 25,
-        order: [[2, 'desc']],
         dom: '<"d-flex justify-content-between align-items-center mb-3"f<"ms-3"l>>rtip'
     });
 
@@ -790,79 +634,6 @@ $(document).ready(function() {
             complete: function() {
                 submitBtn.prop('disabled', false);
                 spinner.addClass('d-none');
-            }
-        });
-    });
-
-    // Salary advance form submission
-    $('#requestAdvanceForm').on('submit', function(e) {
-        e.preventDefault();
-        
-        const form = $(this);
-        const submitBtn = form.find('button[type="submit"]');
-        
-        // Show loading state
-        const originalBtnText = submitBtn.html();
-        submitBtn.prop('disabled', true).html(`
-            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-            Processing...
-        `);
-        
-        hideAlert('#advanceFormAlert');
-        
-        // Get form data
-        const formData = {
-            employee_id: form.find('[name="employee_id"]').val(),
-            advance_amount: parseFloat(form.find('[name="advance_amount"]').val()),
-            repayment_period_months: parseInt(form.find('[name="repayment_period_months"]').val()),
-            reason: form.find('[name="reason"]').val()
-        };
-        
-        // Validation
-        if (!formData.employee_id || !formData.advance_amount || !formData.repayment_period_months || !formData.reason) {
-            showAlert('Please fill in all required fields.', 'danger', '#advanceFormAlert');
-            submitBtn.prop('disabled', false).html(originalBtnText);
-            return;
-        }
-        
-        if (formData.advance_amount <= 0) {
-            showAlert('Please enter a valid advance amount.', 'danger', '#advanceFormAlert');
-            submitBtn.prop('disabled', false).html(originalBtnText);
-            return;
-        }
-        
-        // Submit via API
-        $.ajax({
-            url: '../../api/loans/advances.php',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify(formData),
-            success: function(response) {
-                if (response.success) {
-                    showAlert('Salary advance requested successfully!', 'success', '#advanceFormAlert');
-                    form[0].reset();
-                    $('#requestAdvanceModal').modal('hide');
-                    
-                    // Reload page after delay
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 2000);
-                } else {
-                    showAlert(response.message || 'Error requesting salary advance.', 'danger', '#advanceFormAlert');
-                }
-            },
-            error: function(xhr) {
-                let errorMessage = 'An error occurred while processing your request.';
-                try {
-                    const response = JSON.parse(xhr.responseText);
-                    errorMessage = response.message || errorMessage;
-                } catch (e) {
-                    // Use default error message
-                }
-                showAlert(errorMessage, 'danger', '#advanceFormAlert');
-            },
-            complete: function() {
-                submitBtn.prop('disabled', false).html(originalBtnText);
             }
         });
     });

@@ -108,7 +108,7 @@ try {
                 // Only try to get advance details if reference_id is available
                 if (!empty($component['reference_id'])) {
                     $advanceStmt = $db->prepare("
-                        SELECT CONCAT('Advance - ', COALESCE(purpose, 'Repayment')) as display_name 
+                        SELECT CONCAT('Advance - ', COALESCE('Repayment')) as display_name 
                         FROM salary_advances 
                         WHERE advance_id = :advance_id
                     ");
@@ -118,6 +118,12 @@ try {
                         $advanceName = $result['display_name'];
                     }
                 }
+                
+                // Add to the advances array
+                $advances[] = [
+                    'component_name' => $advanceName,
+                    'amount' => $component['amount']
+                ];
             } else {
                 // Regular deductions
                 $deductions[] = [
