@@ -689,6 +689,159 @@ include '../../includes/header.php';
             </table>
         </div>
 
+        <!-- Pension Fund Details -->
+        <div class="table-responsive mb-4">
+            <h5>
+                Pension Fund Details as of <?php echo date('F Y', strtotime($payslip['end_date'])); ?>
+            </h5>
+
+            <table class="table table-bordered">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Contribution Type</th>
+                        <th class="text-end">Current Period</th>
+                        <th class="text-end">Year to Date (<?php echo date('Y', strtotime($payslip['end_date'])); ?>)</th>
+                        <th class="text-end">To Date (All Time)</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    // Find the actual pension deduction from the deductions array
+                    $employeePensionDeduction = 0;
+                    $pensionComponentName = '';
+                    
+                    foreach ($deductions as $deduction) {
+                        // Look for pension deduction
+                        if (stripos($deduction['component_name'], 'pension') !== false || 
+                            ($deduction['component_code'] ?? '') === 'PENSION') {
+                            $employeePensionDeduction = (float)$deduction['current'];
+                            $pensionComponentName = $deduction['component_name'];
+                            break;
+                        }
+                    }
+
+                    // Alternative: Search in current components for pension
+                    if ($employeePensionDeduction <= 0) {
+                        foreach ($currentComponents as $component) {
+                            if ($component['component_type'] === 'deduction' && 
+                                (stripos($component['component_name'], 'pension') !== false || 
+                                ($component['component_code'] ?? '') === 'PENSION')) {
+                                $employeePensionDeduction = (float)$component['amount'];
+                                $pensionComponentName = $component['component_name'];
+                                break;
+                            }
+                        }
+                    }
+
+                    // Calculate pensionable salary and employer contribution
+                    $hasPensionData = ($employeePensionDeduction > 0);
+                    
+                    if ($hasPensionData) {
+                        // Since employee pays 8%, we can calculate the pensionable salary
+                        $pensionableSalary = $employeePensionDeduction / 0.08;
+                        $employerContribution = $pensionableSalary * 0.10;
+                        $totalContribution = $employeePensionDeduction + $employerContribution;
+
+                        // Get YTD values for pension
+                        $employeePensionYTD = 0;
+                        $employerPensionYTD = 0;
+                        
+                        // Find YTD value for employee pension
+                        foreach ($deductions as $deduction) {
+                            if (stripos($deduction['component_name'], 'pension') !== false || 
+                                ($deduction['component_code'] ?? '') === 'PENSION') {
+                                $employeePensionYTD = (float)$deduction['ytd'];
+                                break;
+                            }
+                        }
+                        
+                        // Calculate employer YTD
+                        $employerPensionYTD = $employeePensionYTD / 0.08 * 0.10;
+
+                        // Fetch total pension contributions (all time) from database
+                        $totalEmployeePension = 0;
+                        $totalEmployerPension = 0;
+                        
+                        try {
+                            // Query to get all-time pension contributions for this employee
+                            $pensionTotalStmt = $db->prepare("
+                                SELECT 
+                                    SUM(pd.amount) as total_employee_pension
+                                FROM payroll_details pd
+                                JOIN payroll_master pm ON pd.payroll_id = pm.payroll_id
+                                JOIN payroll_periods pp ON pm.period_id = pp.period_id
+                                JOIN salary_components sc ON pd.component_id = sc.component_id
+                                WHERE pm.employee_id = :employee_id
+                                AND sc.component_type = 'deduction'
+                                AND (LOWER(sc.component_name) LIKE '%pension%' OR sc.component_code = 'PENSION')
+                                AND pp.end_date <= :period_end
+                            ");
+                            
+                            $pensionTotalStmt->execute([
+                                ':employee_id' => $payslip['employee_id'],
+                                ':period_end' => $payslip['end_date']
+                            ]);
+                            
+                            $pensionTotal = $pensionTotalStmt->fetch(PDO::FETCH_ASSOC);
+                            $totalEmployeePension = (float)($pensionTotal['total_employee_pension'] ?? 0);
+                            
+                            // Calculate total employer pension (10% of the same pensionable base)
+                            $totalEmployerPension = $totalEmployeePension / 0.08 * 0.10;
+                            
+                        } catch (Exception $e) {
+                            // If query fails, use YTD as fallback
+                            $totalEmployeePension = $employeePensionYTD;
+                            $totalEmployerPension = $employerPensionYTD;
+                            error_log("Pension total query error: " . $e->getMessage());
+                        }
+                        
+                        // Employee Contribution
+                        echo '<tr>';
+                        echo '<td>Employee Contribution (8%)</td>';
+                        echo '<td class="text-end">' . formatCurrency($employeePensionDeduction) . '</td>';
+                        echo '<td class="text-end">' . formatCurrency($employeePensionYTD) . '</td>';
+                        echo '<td class="text-end">' . formatCurrency($totalEmployeePension) . '</td>';
+                        echo '<td><span class="badge bg-success">Active</span></td>';
+                        echo '</tr>';
+                        
+                        // Employer Contribution
+                        echo '<tr>';
+                        echo '<td>Employer Contribution (10%)</td>';
+                        echo '<td class="text-end">' . formatCurrency($employerContribution) . '</td>';
+                        echo '<td class="text-end">' . formatCurrency($employerPensionYTD) . '</td>';
+                        echo '<td class="text-end">' . formatCurrency($totalEmployerPension) . '</td>';
+                        echo '<td><span class="badge bg-success">Active</span></td>';
+                        echo '</tr>';
+                        
+                        // Total
+                        echo '<tr class="table-active">';
+                        echo '<td><strong>Total Pension Contribution</strong></td>';
+                        echo '<td class="text-end"><strong>' . formatCurrency($totalContribution) . '</strong></td>';
+                        echo '<td class="text-end"><strong>' . formatCurrency($employeePensionYTD + $employerPensionYTD) . '</strong></td>';
+                        echo '<td class="text-end"><strong>' . formatCurrency($totalEmployeePension + $totalEmployerPension) . '</strong></td>';
+                        echo '<td></td>';
+                        echo '</tr>';
+
+                        // Optional: Show calculation note
+                        echo '<tr class="small text-muted">';
+                        echo '<td colspan="5" class="text-center">';
+                        echo 'To Date represents total contributions from employment start to ' . date('F Y', strtotime($payslip['end_date']));
+                        echo '</td>';
+                        echo '</tr>';
+
+                    } else {
+                        echo '<tr>';
+                        echo '<td colspan="5" class="text-center text-muted">';
+                        echo 'No pension deduction found for this period';
+                        echo '</td>';
+                        echo '</tr>';
+                    }
+                    ?>
+                </tbody>
+            </table>
+        </div> 
+
        <!-- Loan and Advance Limits -->
         <div class="table-responsive mb-4">
             <h5>
