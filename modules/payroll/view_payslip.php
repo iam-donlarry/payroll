@@ -437,6 +437,32 @@ include '../../includes/header.php';
             </table>
         </div>
 
+        <!-- Summary -->
+        <div class="row justify-content-end">
+            <div class="col-md-4">
+                <table class="table table-bordered">
+                    <tr>
+                        <th>Gross Pay:</th>
+                        <td class="text-end"><?php echo formatCurrency($payslip['gross_salary']); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Total Deductions:</th>
+                        <td class="text-end"><?php echo formatCurrency($payslip['total_deductions']); ?></td>
+                    </tr>
+                    <tr class="table-active">
+                        <th>Net Pay:</th>
+                        <th class="text-end"><?php echo formatCurrency($payslip['net_salary']); ?></th>
+                    </tr>
+                    <tr>
+                        <th>Amount in Words:</th>
+                        <td class="text-uppercase fst-italic">
+                            <?php echo numberToWords($payslip['net_salary']); ?> NAIRA ONLY
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
         <!-- Loan Details Report -->
         <div class="table-responsive mb-4">
             <h5>
@@ -663,30 +689,89 @@ include '../../includes/header.php';
             </table>
         </div>
 
-        <!-- Summary -->
-        <div class="row justify-content-end">
-            <div class="col-md-4">
-                <table class="table table-bordered">
+       <!-- Loan and Advance Limits -->
+        <div class="table-responsive mb-4">
+            <h5>
+                Loan and Advance Limits (Future Borrowing Capacity)
+            </h5>
+
+            <table class="table table-bordered">
+                <thead class="table-dark">
                     <tr>
-                        <th>Gross Pay:</th>
-                        <td class="text-end"><?php echo formatCurrency($payslip['gross_salary']); ?></td>
+                        <th>Limit Type</th>
+                        <th class="text-end">Maximum Allowed (33% of Gross)</th>
+                        <th class="text-end">Remaining Loan Balance</th>
+                        <th class="text-end">Available for New Loans/Advances</th>
                     </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    // Include and initialize LoanManager
+                    require_once '../../includes/LoanManager.php';
+                    $loanManager = new LoanManager($db);
+                    
+                    // Get current borrowing limit info
+                    $currentLimitInfo = $loanManager->checkBorrowingLimit($payslip['employee_id'], 0);
+                    
+                    // Use the totalOutstanding value from the Loan Details section above
+                    $remainingLoanBalance = $totalOutstanding; // This comes from the loan details calculation
+                    
+                    // Calculate available for new loans/advances
+                    $availableForNew = $currentLimitInfo['max_limit'] - $remainingLoanBalance;
+                    $availableForNew = max(0, $availableForNew); // Ensure it doesn't go negative
+                    
+                    // Calculate percentage used by remaining loan balance
+                    $percentageUsed = $currentLimitInfo['max_limit'] > 0 ? 
+                        ($remainingLoanBalance / $currentLimitInfo['max_limit']) * 100 : 0;
+                    
+                    // Determine status class
+                    $statusClass = 'success';
+                    if ($percentageUsed >= 90) {
+                        $statusClass = 'danger';
+                    } elseif ($percentageUsed >= 70) {
+                        $statusClass = 'warning';
+                    }
+                    ?>
+                    
                     <tr>
-                        <th>Total Deductions:</th>
-                        <td class="text-end"><?php echo formatCurrency($payslip['total_deductions']); ?></td>
-                    </tr>
-                    <tr class="table-active">
-                        <th>Net Pay:</th>
-                        <th class="text-end"><?php echo formatCurrency($payslip['net_salary']); ?></th>
-                    </tr>
-                    <tr>
-                        <th>Amount in Words:</th>
-                        <td class="text-uppercase fst-italic">
-                            <?php echo numberToWords($payslip['net_salary']); ?> NAIRA ONLY
+                        <td>Combined Loan & Advance Limit</td>
+                        <td class="text-end"><?php echo formatCurrency($currentLimitInfo['max_limit']); ?></td>
+                        <td class="text-end"><?php echo formatCurrency($remainingLoanBalance); ?></td>
+                        <td class="text-end">
+                            <strong><?php echo formatCurrency($availableForNew); ?></strong>
                         </td>
                     </tr>
-                </table>
-            </div>
+                    
+                    <tr>
+                        <td colspan="5" class="small text-muted">
+                            <strong>Note:</strong> 
+                            Available amount (<?php echo formatCurrency($availableForNew); ?>) shows what you can borrow for new loans or advances. 
+                            Only the <strong>remaining loan balance</strong> (<?php echo formatCurrency($remainingLoanBalance); ?>) from active loans is deducted from your borrowing limit.
+                            Salary advances are fully deducted in the current period and don't affect future borrowing capacity.
+                        </td>
+                    </tr>
+                    
+                    <?php
+                    
+                    // Show what this means for the employee
+                    if ($availableForNew > 0) {
+                        echo '<tr class="small table-success">';
+                        echo '<td colspan="5" class="text-center">';
+                        echo '<strong>✅ You can request new loans or advances up to: ' . formatCurrency($availableForNew) . '</strong>';
+                        echo '</td>';
+                        echo '</tr>';
+                    } else {
+                        echo '<tr class="small table-warning">';
+                        echo '<td colspan="5" class="text-center">';
+                        echo '<strong>⚠️ You have reached your borrowing limit. No new loans or advances can be approved until existing loans are paid down.</strong>';
+                        echo '</td>';
+                        echo '</tr>';
+                    }
+                    
+                    
+                    ?>
+                </tbody>
+            </table>
         </div>
 
         <!-- Footer -->
