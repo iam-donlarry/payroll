@@ -132,6 +132,17 @@ function applyForLoan($db, $auth) {
             return;
         }
 
+        // Check borrowing limit
+        require_once '../../includes/LoanManager.php';
+        $loanManager = new LoanManager($db);
+        $limitCheck = $loanManager->checkBorrowingLimit($input['employee_id'], $loan_amount);
+
+        if (!$limitCheck['allowed']) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => $limitCheck['message']]);
+            return;
+        }
+
         $monthly_repayment = round($loan_amount / $tenure_months, 2);
         $total_repayable = round($monthly_repayment * $tenure_months, 2);
         // Recalculate to avoid floating point drift

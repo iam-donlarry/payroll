@@ -394,6 +394,21 @@ include '../../includes/header.php';
                         </div>
                     </div>
                     
+                    <!-- Borrowing Limit Information -->
+                    <div class="alert alert-info d-none" id="borrowingLimitInfo">
+                        <h6 class="alert-heading mb-2"><i class="fas fa-info-circle me-2"></i>Borrowing Limit</h6>
+                        <div class="row small">
+                            <div class="col-md-6">
+                                <div class="mb-1"><strong>Gross Salary:</strong> <span id="displayGrossSalary">-</span></div>
+                                <div class="mb-1"><strong>Max Limit (33%):</strong> <span id="displayMaxLimit">-</span></div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-1"><strong>Current Outstanding:</strong> <span id="displayOutstanding">-</span></div>
+                                <div class="mb-1"><strong class="text-success">Available Amount:</strong> <span id="displayAvailable" class="text-success fw-bold">-</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="mb-3">
                         <label class="form-label">Purpose <span class="text-danger">*</span></label>
                         <textarea class="form-control" id="purpose" name="purpose" rows="3" required 
@@ -451,6 +466,48 @@ $(document).ready(function() {
         order: [[3, 'desc']],
         dom: '<"d-flex justify-content-between align-items-center mb-3"f<"ms-3"l>>rtip'
     });
+
+    // Employee change handler - fetch borrowing limit
+    $('#employeeId').on('change', function() {
+        const employeeId = $(this).val();
+        if (!employeeId) {
+            $('#borrowingLimitInfo').addClass('d-none');
+            return;
+        }
+        
+        // Fetch borrowing limit
+        $.ajax({
+            url: '../../api/loans/limit.php',
+            type: 'GET',
+            data: { employee_id: employeeId },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    const data = response.data;
+                    $('#displayGrossSalary').text('₦' + parseFloat(data.gross_salary).toLocaleString('en-NG', {minimumFractionDigits: 2}));
+                    $('#displayMaxLimit').text('₦' + parseFloat(data.max_limit).toLocaleString('en-NG', {minimumFractionDigits: 2}));
+                    $('#displayOutstanding').text('₦' + parseFloat(data.current_outstanding).toLocaleString('en-NG', {minimumFractionDigits: 2}));
+                    $('#displayAvailable').text('₦' + parseFloat(data.available_amount).toLocaleString('en-NG', {minimumFractionDigits: 2}));
+                    $('#borrowingLimitInfo').removeClass('d-none');
+                    
+                    // Set max loan amount to available amount
+                    $('#loanAmount').attr('max', data.available_amount);
+                } else {
+                    console.error('Error fetching limit:', response.message);
+                    $('#borrowingLimitInfo').addClass('d-none');
+                }
+            },
+            error: function() {
+                console.error('AJAX error fetching borrowing limit');
+                $('#borrowingLimitInfo').addClass('d-none');
+            }
+        });
+    });
+    
+    // Trigger on page load if employee is already selected
+    if ($('#employeeId').val()) {
+        $('#employeeId').trigger('change');
+    }
 
     // Loan type change handler
     $('#loanType').on('change', function() {

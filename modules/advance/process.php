@@ -123,23 +123,14 @@ function handleAdvanceRequest($db) {
     if (!$employee_id) {
         throw new Exception("Could not determine employee information.");
     }
-    
-    // Get employee's net salary
-    $stmt = $db->prepare("SELECT SUM(amount) as net_salary 
-                         FROM employee_salary_structure 
-                         WHERE employee_id = ?");
-    $stmt->execute([$employee_id]);
-    $result = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if (!$result || !isset($result['net_salary']) || $result['net_salary'] <= 0) {
-        throw new Exception("Could not determine your salary information. Please contact HR.");
-    }
-    
-    $net_salary = (float)$result['net_salary'];
-    $max_advance = $net_salary * 0.33; // 33% of net salary
-    
-    if ($amount > $max_advance) {
-        throw new Exception("Advance amount cannot exceed 33% of your net salary (₦" . number_format($max_advance, 2) . ").");
+
+    // Check borrowing limit
+    require_once '../../includes/LoanManager.php';
+    $loanManager = new LoanManager($db);
+    $limitCheck = $loanManager->checkBorrowingLimit($employee_id, $amount);
+
+    if (!$limitCheck['allowed']) {
+        throw new Exception($limitCheck['message']);
     }
     
     // Check for pending advances

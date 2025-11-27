@@ -228,6 +228,21 @@ $advances = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         </div>
                     </div>
                     
+                    <!-- Borrowing Limit Information -->
+                    <div class="alert alert-info d-none" id="advanceBorrowingLimitInfo">
+                        <h6 class="alert-heading mb-2"><i class="fas fa-info-circle me-2"></i>Borrowing Limit</h6>
+                        <div class="row small">
+                            <div class="col-md-6">
+                                <div class="mb-1"><strong>Gross Salary:</strong> <span id="advanceDisplayGrossSalary">-</span></div>
+                                <div class="mb-1"><strong>Max Limit (33%):</strong> <span id="advanceDisplayMaxLimit">-</span></div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-1"><strong>Current Outstanding:</strong> <span id="advanceDisplayOutstanding">-</span></div>
+                                <div class="mb-1"><strong class="text-success">Available Amount:</strong> <span id="advanceDisplayAvailable" class="text-success fw-bold">-</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="mb-3">
                         <label for="reason" class="form-label">Reason for Advance</label>
                         <textarea class="form-control" id="reason" name="reason" rows="3" required></textarea>
@@ -357,19 +372,43 @@ $(document).ready(function() {
         });
     }
     
-    // Update max advance when employee changes
+    // Update max advance when employee changes - fetch borrowing limit
     $('#employee_id').on('change', function() {
         var employeeId = $(this).val();
         if (!employeeId) {
             $('#advance_amount').attr('max', '').removeAttr('max');
             $('#max_advance_info').text('Please select an employee first');
+            $('#advanceBorrowingLimitInfo').addClass('d-none');
             return;
         }
         
-        getMaxAdvance(employeeId, function(maxAdvance) {
-            var formattedAmount = '₦' + maxAdvance.toLocaleString('en-NG', {minimumFractionDigits: 2});
-            $('#max_advance_info').text('Maximum allowed: ' + formattedAmount);
-            $('#advance_amount').attr('max', maxAdvance);
+        // Fetch borrowing limit from API
+        $.ajax({
+            url: '../../api/loans/limit.php',
+            type: 'GET',
+            data: { employee_id: employeeId },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    const data = response.data;
+                    $('#advanceDisplayGrossSalary').text('₦' + parseFloat(data.gross_salary).toLocaleString('en-NG', {minimumFractionDigits: 2}));
+                    $('#advanceDisplayMaxLimit').text('₦' + parseFloat(data.max_limit).toLocaleString('en-NG', {minimumFractionDigits: 2}));
+                    $('#advanceDisplayOutstanding').text('₦' + parseFloat(data.current_outstanding).toLocaleString('en-NG', {minimumFractionDigits: 2}));
+                    $('#advanceDisplayAvailable').text('₦' + parseFloat(data.available_amount).toLocaleString('en-NG', {minimumFractionDigits: 2}));
+                    $('#advanceBorrowingLimitInfo').removeClass('d-none');
+                    
+                    // Set max advance amount to available amount
+                    $('#advance_amount').attr('max', data.available_amount);
+                    $('#max_advance_info').text('Maximum allowed: ₦' + parseFloat(data.available_amount).toLocaleString('en-NG', {minimumFractionDigits: 2}));
+                } else {
+                    console.error('Error fetching limit:', response.message);
+                    $('#advanceBorrowingLimitInfo').addClass('d-none');
+                }
+            },
+            error: function() {
+                console.error('AJAX error fetching borrowing limit');
+                $('#advanceBorrowingLimitInfo').addClass('d-none');
+            }
         });
     });
     
