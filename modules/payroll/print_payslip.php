@@ -848,9 +848,6 @@ header('Content-Type: text/html; charset=utf-8');
             </table>
         </div>
 
-        <!-- Page Break -->
-        <div class="page-break"></div>
-
         <!-- Page 3: Loan & Advance Limits -->
         <div class="section">
             <div class="section-title text-center">LOAN AND ADVANCE LIMITS</div>
