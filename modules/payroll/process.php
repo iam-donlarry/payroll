@@ -216,7 +216,20 @@ function processPayroll($db, $period_id) {
             $basic_salary = $salary_data['basic_salary'];
             $allowances_data = $salary_data['allowances_data'];
             $total_allowances = $allowances_data['total'];
-            $gross_salary = $basic_salary + $total_allowances;
+
+            // Gather occasional taxable payments for this month
+            $occasionalPayments = getOccasionalTaxablePayments($db, $employee_id, $period['end_date']);
+            $occasionalPaymentIds = array_column($occasionalPayments, 'payment_id');
+            $occasional_total = array_sum(array_column($occasionalPayments, 'amount'));
+
+            // Determine 13th month eligibility (December only)
+            $isDecember = date('m', strtotime($period['end_date'])) === '12';
+            $thirteenthMonth = 0;
+            if ($isDecember) {
+                $thirteenthMonth = calculateThirteenthMonth($basic_salary, $emp['employment_date'], $period['end_date']);
+            }
+
+            $gross_salary = $basic_salary + $total_allowances + $occasional_total + $thirteenthMonth;
             $total_earnings = $gross_salary;
 
             if ($gross_salary <= 0) {
@@ -275,10 +288,10 @@ function processPayroll($db, $period_id) {
                 $payroll_id = $db->lastInsertId();
             }
 
-            // Insert earnings (Basic + Allowances)
+            // Insert earnings (Basic + Allowances + Occasional + 13th month)
             $earnings = [];
             $earnings[] = [
-                'component_id' => $components['Basic Salary'] ?? 1,
+                'component_id' => $components['Basic Salary'] ?? $components['BASIC'] ?? 1,
                 'component_name' => 'Basic Salary',
                 'amount' => $basic_salary
             ];
@@ -286,14 +299,40 @@ function processPayroll($db, $period_id) {
             if (!empty($allowances_data['components'])) {
                 foreach ($allowances_data['components'] as $allowance) {
                     $earnings[] = [
-                        'component_id' => $components[$allowance['component_name']] ?? 0,
+                        'component_id' => $components[$allowance['component_name']] ?? $allowance['component_id'] ?? 0,
                         'component_name' => $allowance['component_name'],
                         'amount' => $allowance['amount']
                     ];
                 }
             }
+
+            if (!empty($occasionalPayments)) {
+                foreach ($occasionalPayments as $payment) {
+                    $earnings[] = [
+                        'component_id' => $components['OTP'] ?? $components['Occasional Taxable Payment'] ?? 0,
+                        'component_name' => 'Occasional Taxable Payment',
+                        'amount' => $payment['amount'],
+                        'reference_id' => $payment['payment_id'],
+                        'reference_type' => 'occasional_payment',
+                        'notes' => $payment['title']
+                    ];
+                }
+            }
+
+            if ($thirteenthMonth > 0) {
+                $earnings[] = [
+                    'component_id' => $components['13TH_BONUS'] ?? $components['13th Month Salary'] ?? $components['13TH'] ?? 0,
+                    'component_name' => '13th Month Salary',
+                    'amount' => $thirteenthMonth,
+                    'reference_type' => 'thirteenth_month'
+                ];
+            }
             
             insertPayrollDetails($db, $payroll_id, $earnings, 'earning');
+
+            if (!empty($occasionalPaymentIds)) {
+                markOccasionalPaymentsAsPaid($db, $occasionalPaymentIds, $payroll_id);
+            }
 
             // Insert deductions including loans and advances
             if (!empty($deductions['components'])) {
@@ -523,6 +562,93 @@ function calculateGrossSalaryFromDB($db, $employee_id) {
             'components' => $allowance_components
         ]
     ];
+}
+
+/**
+ * Fetch occasional taxable payments for a specific employee/month.
+ */
+function getOccasionalTaxablePayments($db, $employee_id, $period_end) {
+    try {
+        $month = date('Y-m', strtotime($period_end));
+        $stmt = $db->prepare("
+            SELECT payment_id, title, amount
+            FROM employee_occasional_payments
+            WHERE employee_id = :employee_id
+              AND status = 'pending'
+              AND DATE_FORMAT(pay_month, '%Y-%m') = :month
+        ");
+        $stmt->execute([
+            ':employee_id' => $employee_id,
+            ':month' => $month
+        ]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Error fetching occasional payments: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Mark occasional payments as paid once payroll is created.
+ */
+function markOccasionalPaymentsAsPaid($db, $paymentIds, $payroll_id) {
+    if (empty($paymentIds)) {
+        return;
+    }
+    $placeholders = implode(',', array_fill(0, count($paymentIds), '?'));
+    $params = $paymentIds;
+    array_unshift($params, $payroll_id);
+
+    try {
+        $stmt = $db->prepare("
+            UPDATE employee_occasional_payments
+            SET status = 'paid',
+                payroll_id = ?,
+                paid_at = NOW(),
+                updated_at = NOW()
+            WHERE payment_id IN ($placeholders)
+        ");
+        $stmt->execute($params);
+    } catch (PDOException $e) {
+        error_log("Error marking occasional payments as paid: " . $e->getMessage());
+    }
+}
+
+/**
+ * Calculate the 13th month salary (December only, prorated by months worked in the year).
+ */
+function calculateThirteenthMonth($basic_salary, $employment_date, $period_end) {
+    if ($basic_salary <= 0 || empty($employment_date) || empty($period_end)) {
+        return 0;
+    }
+
+    $periodDate = new DateTime($period_end);
+    if ($periodDate->format('m') !== '12') {
+        return 0;
+    }
+
+    try {
+        $employmentDate = new DateTime($employment_date);
+    } catch (Exception $e) {
+        return 0;
+    }
+
+    $periodYear = (int)$periodDate->format('Y');
+    $employmentYear = (int)$employmentDate->format('Y');
+
+    if ($employmentYear > $periodYear) {
+        return 0;
+    }
+
+    if ($employmentYear === $periodYear) {
+        $monthsWorked = 12 - (int)$employmentDate->format('n') + 1;
+        $monthsWorked = max(1, min(12, $monthsWorked));
+    } else {
+        $monthsWorked = 12;
+    }
+
+    $thirteenth = $basic_salary * ($monthsWorked / 12);
+    return round($thirteenth, 2);
 }
 
 /**
@@ -971,6 +1097,10 @@ function ensureSalaryComponents($db) {
         // CRITICAL: Ensure Loan and Advance components exist
         ['Loan Repayment', 'deduction', 'LOAN', false, false],
         ['Salary Advance', 'deduction', 'ADVANCE', false, false],
+
+        // Additional earnings
+        ['Occasional Taxable Payment', 'earning', 'OTP', true, false],
+        ['13th Month Salary', 'earning', '13TH_BONUS', true, false],
     ];
     
     foreach ($components as $component) {
@@ -1005,18 +1135,22 @@ function insertPayrollDetails($db, $payroll_id, $components, $type) {
         }
         
         $reference_id = $c['reference_id'] ?? null;
+        $reference_type = $c['reference_type'] ?? null;
+        $notes = $c['notes'] ?? null;
         
         try {
             $stmt = $db->prepare("
                 INSERT INTO payroll_details 
-                (payroll_id, component_id, amount, reference_id) 
-                VALUES (:payroll_id, :component_id, :amount, :reference_id)
+                (payroll_id, component_id, amount, reference_id, reference_type, notes) 
+                VALUES (:payroll_id, :component_id, :amount, :reference_id, :reference_type, :notes)
             ");
             $result = $stmt->execute([
                 ':payroll_id' => $payroll_id,
                 ':component_id' => $c['component_id'],
                 ':amount' => $c['amount'],
-                ':reference_id' => $reference_id
+                ':reference_id' => $reference_id,
+                ':reference_type' => $reference_type,
+                ':notes' => $notes
             ]);
             
             if (!$result) {

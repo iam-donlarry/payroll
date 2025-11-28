@@ -42,6 +42,9 @@ include '../../includes/header.php';
         <a href="process.php" class="btn btn-success">
             <i class="fas fa-calculator me-2"></i>Process Payroll
         </a>
+        <a href="occasional_payments.php" class="btn btn-outline-info">
+            <i class="fas fa-gift me-2"></i>Occasional Payments
+        </a>
     </div>
 </div>
 

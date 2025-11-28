@@ -460,6 +460,25 @@ CREATE TABLE `employee_documents` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `employee_occasional_payments`
+--
+
+CREATE TABLE `employee_occasional_payments` (
+  `payment_id` int(11) NOT NULL,
+  `employee_id` int(11) NOT NULL,
+  `title` varchar(150) NOT NULL,
+  `amount` decimal(12,2) NOT NULL,
+  `pay_month` date NOT NULL,
+  `status` enum('pending','paid') NOT NULL DEFAULT 'pending',
+  `payroll_id` int(11) DEFAULT NULL,
+  `paid_at` datetime DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `employee_loans`
 --
 
@@ -966,7 +985,9 @@ INSERT INTO `salary_components` (`component_id`, `component_name`, `component_ty
 (11, 'Pension Contribution', 'deduction', 'PENS', 0, 1, 'fixed', NULL, 1),
 (12, 'NHF Contribution', 'deduction', 'NHF', 0, 1, 'fixed', NULL, 1),
 (13, 'Loan Repayment', 'deduction', 'LOAN', 0, 0, 'fixed', NULL, 1),
-(14, 'Salary Advance', 'deduction', 'ADVANCE', 0, 0, 'fixed', NULL, 1);
+(14, 'Salary Advance', 'deduction', 'ADVANCE', 0, 0, 'fixed', NULL, 1),
+(15, 'Occasional Taxable Payment', 'earning', 'OTP', 1, 0, 'fixed', 'One-off bonuses or incentives', 1),
+(16, '13th Month Salary', 'earning', '13TH_BONUS', 1, 0, 'fixed', 'Automatic December bonus', 1);
 
 -- --------------------------------------------------------
 
@@ -1196,6 +1217,15 @@ ALTER TABLE `employee_benefits`
 ALTER TABLE `employee_documents`
   ADD PRIMARY KEY (`document_id`),
   ADD KEY `employee_id` (`employee_id`);
+
+--
+-- Indexes for table `employee_occasional_payments`
+--
+ALTER TABLE `employee_occasional_payments`
+  ADD PRIMARY KEY (`payment_id`),
+  ADD KEY `employee_id` (`employee_id`),
+  ADD KEY `idx_pay_month_status` (`pay_month`,`status`),
+  ADD KEY `payroll_id` (`payroll_id`);
 
 --
 -- Indexes for table `employee_loans`
@@ -1465,6 +1495,12 @@ ALTER TABLE `employee_documents`
   MODIFY `document_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `employee_occasional_payments`
+--
+ALTER TABLE `employee_occasional_payments`
+  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `employee_loans`
 --
 ALTER TABLE `employee_loans`
@@ -1576,7 +1612,7 @@ ALTER TABLE `salary_advances`
 -- AUTO_INCREMENT for table `salary_components`
 --
 ALTER TABLE `salary_components`
-  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
+  MODIFY `component_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
 
 --
 -- AUTO_INCREMENT for table `salary_levels`
@@ -1670,6 +1706,13 @@ ALTER TABLE `employee_benefits`
 --
 ALTER TABLE `employee_documents`
   ADD CONSTRAINT `employee_documents_ibfk_1` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`employee_id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `employee_occasional_payments`
+--
+ALTER TABLE `employee_occasional_payments`
+  ADD CONSTRAINT `employee_occasional_payments_ibfk_1` FOREIGN KEY (`employee_id`) REFERENCES `employees` (`employee_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `employee_occasional_payments_ibfk_2` FOREIGN KEY (`payroll_id`) REFERENCES `payroll_master` (`payroll_id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `employee_loans`

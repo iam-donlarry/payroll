@@ -51,7 +51,8 @@ try {
             sc.component_type,
             sc.component_code,
             pd.amount,
-            pd.reference_id
+            pd.reference_id,
+            pd.notes
         FROM payroll_details pd
         JOIN salary_components sc ON pd.component_id = sc.component_id
         WHERE pd.payroll_id = :payroll_id
@@ -133,7 +134,8 @@ try {
                 'component_name' => $component['component_name'],
                 'current' => (float)$component['amount'],
                 'last_month' => $lastMonthAmount,
-                'ytd' => $ytd
+                'ytd' => $ytd,
+                'notes' => $component['notes'] ?? null
             ];
         } else if ($component['component_type'] === 'deduction') {
             if ($code === 'LOAN' && !empty($refId)) {
@@ -174,7 +176,8 @@ try {
                 'last_month' => $lastMonthAmount,
                 'ytd' => $ytd,
                 'component_code' => $code,
-                'reference_id' => $refId
+                'reference_id' => $refId,
+                'notes' => $component['notes'] ?? null
             ];
         }
         $processedKeys[$key] = true;
@@ -233,7 +236,8 @@ try {
             'last_month' => $lastMonthAmount,
             'ytd' => (float)$totalYTD,
             'component_code' => $code,
-            'reference_id' => $refId
+            'reference_id' => $refId,
+            'notes' => null
         ];
     }
 
@@ -580,7 +584,17 @@ header('Content-Type: text/html; charset=utf-8');
                 <thead><tr><th>Description</th><th class="text-end">Current</th><th class="text-end">Last Month</th><th class="text-end">YTD</th></tr></thead>
                 <tbody>
                     <?php foreach ($earnings as $earning): ?>
-                    <tr><td><?php echo htmlspecialchars($earning['component_name']); ?></td><td class="text-end"><?php echo formatCurrency($earning['current']); ?></td><td class="text-end"><?php echo formatCurrency($earning['last_month']); ?></td><td class="text-end"><?php echo formatCurrency($earning['ytd']); ?></td></tr>
+                    <tr>
+                        <td>
+                            <?php echo htmlspecialchars($earning['component_name']); ?>
+                            <?php if (!empty($earning['notes'])): ?>
+                                <br><small class="text-muted"><?php echo htmlspecialchars($earning['notes']); ?></small>
+                            <?php endif; ?>
+                        </td>
+                        <td class="text-end"><?php echo formatCurrency($earning['current']); ?></td>
+                        <td class="text-end"><?php echo formatCurrency($earning['last_month']); ?></td>
+                        <td class="text-end"><?php echo formatCurrency($earning['ytd']); ?></td>
+                    </tr>
                     <?php endforeach; ?>
                     <tr class="table-active"><th class="text-end">Total Earnings:</th><th class="text-end"><?php echo formatCurrency($totalEarnings); ?></th><th class="text-end"></th><th class="text-end"><?php echo formatCurrency($totalYTDEarnings); ?></th></tr>
                 </tbody>
@@ -594,7 +608,17 @@ header('Content-Type: text/html; charset=utf-8');
                 <thead><tr><th>Description</th><th class="text-end">Current</th><th class="text-end">Last Month</th><th class="text-end">YTD</th></tr></thead>
                 <tbody>
                     <?php foreach ($deductions as $deduction): ?>
-                    <tr><td><?php echo htmlspecialchars($deduction['component_name']); ?></td><td class="text-end"><?php echo formatCurrency($deduction['current']); ?></td><td class="text-end"><?php echo formatCurrency($deduction['last_month']); ?></td><td class="text-end"><?php echo formatCurrency($deduction['ytd']); ?></td></tr>
+                    <tr>
+                        <td>
+                            <?php echo htmlspecialchars($deduction['component_name']); ?>
+                            <?php if (!empty($deduction['notes'])): ?>
+                                <br><small class="text-muted"><?php echo htmlspecialchars($deduction['notes']); ?></small>
+                            <?php endif; ?>
+                        </td>
+                        <td class="text-end"><?php echo formatCurrency($deduction['current']); ?></td>
+                        <td class="text-end"><?php echo formatCurrency($deduction['last_month']); ?></td>
+                        <td class="text-end"><?php echo formatCurrency($deduction['ytd']); ?></td>
+                    </tr>
                     <?php endforeach; ?>
                     <tr class="table-active"><th class="text-end">Total Deductions:</th><th class="text-end"><?php echo formatCurrency($totalDeductions); ?></th><th class="text-end"></th><th class="text-end"><?php echo formatCurrency($totalYTDDeductions); ?></th></tr>
                 </tbody>
