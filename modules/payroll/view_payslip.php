@@ -296,16 +296,20 @@ try {
     // Compute totals for earnings & deductions for display summary (if needed)
     $totalEarnings = 0.0;
     $totalYTDEarnings = 0.0;
+    $totalLastMonthEarnings = 0.0;
     foreach ($earnings as $e) {
         $totalEarnings += $e['current'];
         $totalYTDEarnings += $e['ytd'];
+        $totalLastMonthEarnings += $e['last_month'];
     }
 
     $totalDeductions = 0.0;
     $totalYTDDeductions = 0.0;
+    $totalLastMonthDeductions = 0.0;
     foreach ($deductions as $d) {
         $totalDeductions += $d['current'];
         $totalYTDDeductions += $d['ytd'];
+        $totalLastMonthDeductions += $d['last_month'];
     }
 
 } catch (Exception $e) {
@@ -400,7 +404,7 @@ include '../../includes/header.php';
                     <tr class="table-active">
                         <td class="text-end"><strong>Total Earnings:</strong></td>
                         <td class="text-end"><strong><?php echo formatCurrency($totalEarnings); ?></strong></td>
-                        <td class="text-end"></td>
+                        <td class="text-end"><strong><?php echo formatCurrency($totalLastMonthEarnings); ?></strong></td>
                         <td class="text-end"><strong><?php echo formatCurrency($totalYTDEarnings); ?></strong></td>
                     </tr>
                 </tbody>
@@ -438,7 +442,7 @@ include '../../includes/header.php';
                     <tr class="table-active">
                         <td class="text-end"><strong>Total Deductions:</strong></td>
                         <td class="text-end"><strong><?php echo formatCurrency($totalDeductions); ?></strong></td>
-                        <td class="text-end"></td>
+                        <td class="text-end"><strong><?php echo formatCurrency($totalLastMonthDeductions); ?></strong></td>
                         <td class="text-end"><strong><?php echo formatCurrency($totalYTDDeductions); ?></strong></td>
                     </tr>
                 </tbody>
