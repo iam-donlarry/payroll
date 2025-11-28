@@ -842,19 +842,19 @@ include '../../includes/header.php';
             </table>
         </div> 
 
-       <!-- Loan and Advance Limits -->
+        <!-- Advance Eligibility Report -->
         <div class="table-responsive mb-4">
             <h5>
-                Loan and Advance Limits (Future Borrowing Capacity)
+                Advance Eligibility for Next Month
             </h5>
 
             <table class="table table-bordered">
                 <thead class="table-dark">
                     <tr>
-                        <th>Limit Type</th>
-                        <th class="text-end">Maximum Allowed (33% of Gross)</th>
-                        <th class="text-end">Remaining Loan Balance</th>
-                        <th class="text-end">Available for New Loans/Advances</th>
+                        <th>Gross Salary</th>
+                        <th class="text-end">Max Advance Limit (33%)</th>
+                        <th class="text-end">Monthly Loan Repayments</th>
+                        <th class="text-end">Available Advance Amount</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -863,65 +863,55 @@ include '../../includes/header.php';
                     require_once '../../includes/LoanManager.php';
                     $loanManager = new LoanManager($db);
                     
-                    // Get current borrowing limit info
-                    $currentLimitInfo = $loanManager->checkBorrowingLimit($payslip['employee_id'], 0);
+                    // Get advance limit info
+                    $limitInfo = $loanManager->checkAdvanceBorrowingLimit($payslip['employee_id'], 0);
                     
-                    // Use the totalOutstanding value from the Loan Details section above
-                    $remainingLoanBalance = $totalOutstanding; // This comes from the loan details calculation
-                    
-                    // Calculate available for new loans/advances
-                    $availableForNew = $currentLimitInfo['max_limit'] - $remainingLoanBalance;
-                    $availableForNew = max(0, $availableForNew); // Ensure it doesn't go negative
-                    
-                    // Calculate percentage used by remaining loan balance
-                    $percentageUsed = $currentLimitInfo['max_limit'] > 0 ? 
-                        ($remainingLoanBalance / $currentLimitInfo['max_limit']) * 100 : 0;
+                    $grossSalary = $limitInfo['gross_salary'];
+                    $maxLimit = $limitInfo['max_limit'];
+                    $monthlyRepayment = $limitInfo['monthly_loan_repayment'];
+                    $availableAmount = $limitInfo['available_amount'];
                     
                     // Determine status class
                     $statusClass = 'success';
-                    if ($percentageUsed >= 90) {
+                    if ($availableAmount <= 0) {
                         $statusClass = 'danger';
-                    } elseif ($percentageUsed >= 70) {
+                    } elseif ($availableAmount < ($maxLimit * 0.2)) {
                         $statusClass = 'warning';
                     }
                     ?>
                     
                     <tr>
-                        <td>Combined Loan & Advance Limit</td>
-                        <td class="text-end"><?php echo formatCurrency($currentLimitInfo['max_limit']); ?></td>
-                        <td class="text-end"><?php echo formatCurrency($remainingLoanBalance); ?></td>
+                        <td><?php echo formatCurrency($grossSalary); ?></td>
+                        <td class="text-end"><?php echo formatCurrency($maxLimit); ?></td>
+                        <td class="text-end text-danger"><?php echo formatCurrency($monthlyRepayment); ?></td>
                         <td class="text-end">
-                            <strong><?php echo formatCurrency($availableForNew); ?></strong>
+                            <strong class="text-<?php echo $statusClass; ?>"><?php echo formatCurrency($availableAmount); ?></strong>
                         </td>
                     </tr>
                     
                     <tr>
-                        <td colspan="5" class="small text-muted">
+                        <td colspan="4" class="small text-muted">
                             <strong>Note:</strong> 
-                            Available amount (<?php echo formatCurrency($availableForNew); ?>) shows what you can borrow for new loans or advances. 
-                            Only the <strong>remaining loan balance</strong> (<?php echo formatCurrency($remainingLoanBalance); ?>) from active loans is deducted from your borrowing limit.
-                            Salary advances are fully deducted in the current period and don't affect future borrowing capacity.
+                            Your maximum advance limit is 33% of your gross salary (<?php echo formatCurrency($maxLimit); ?>). 
+                            Any active monthly loan repayments (<?php echo formatCurrency($monthlyRepayment); ?>) are deducted from this limit to determine your available advance amount.
+                            Loans are not restricted by this limit.
                         </td>
                     </tr>
                     
                     <?php
-                    
-                    // Show what this means for the employee
-                    if ($availableForNew > 0) {
+                    if ($availableAmount > 0) {
                         echo '<tr class="small table-success">';
-                        echo '<td colspan="5" class="text-center">';
-                        echo '<strong>✅ You can request new loans or advances up to: ' . formatCurrency($availableForNew) . '</strong>';
+                        echo '<td colspan="4" class="text-center">';
+                        echo '<strong>✅ You are eligible to request an advance up to: ' . formatCurrency($availableAmount) . '</strong>';
                         echo '</td>';
                         echo '</tr>';
                     } else {
                         echo '<tr class="small table-warning">';
-                        echo '<td colspan="5" class="text-center">';
-                        echo '<strong>⚠️ You have reached your borrowing limit. No new loans or advances can be approved until existing loans are paid down.</strong>';
+                        echo '<td colspan="4" class="text-center">';
+                        echo '<strong>⚠️ You are currently not eligible for an advance due to high monthly loan repayments.</strong>';
                         echo '</td>';
                         echo '</tr>';
                     }
-                    
-                    
                     ?>
                 </tbody>
             </table>

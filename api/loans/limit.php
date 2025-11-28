@@ -50,15 +50,16 @@ try {
 
     $loanManager = new LoanManager($db);
     
-    // Get limit details (pass 0 as requested amount to just get status)
-    $limitInfo = $loanManager->checkBorrowingLimit($employee_id, 0);
+    // Get advance limit details (pass 0 as requested amount to just get status)
+    $limitInfo = $loanManager->checkAdvanceBorrowingLimit($employee_id, 0);
     
     echo json_encode([
         'success' => true,
         'data' => [
             'gross_salary' => $limitInfo['gross_salary'],
             'max_limit' => $limitInfo['max_limit'],
-            'current_outstanding' => $limitInfo['current_outstanding'],
+            'current_outstanding' => $limitInfo['monthly_loan_repayment'], // Map to current_outstanding for frontend compatibility
+            'monthly_loan_repayment' => $limitInfo['monthly_loan_repayment'],
             'available_amount' => $limitInfo['available_amount']
         ]
     ]);

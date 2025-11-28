@@ -124,13 +124,13 @@ function handleAdvanceRequest($db) {
         throw new Exception("Could not determine employee information.");
     }
 
-    // Check borrowing limit
+    // Check borrowing limit using the new logic (33% of gross - monthly loan repayments)
     require_once '../../includes/LoanManager.php';
     $loanManager = new LoanManager($db);
-    $limitCheck = $loanManager->checkBorrowingLimit($employee_id, $amount);
-
-    if (!$limitCheck['allowed']) {
-        throw new Exception($limitCheck['message']);
+    $limitResult = $loanManager->checkAdvanceBorrowingLimit($employee_id, $amount);
+    
+    if (!$limitResult['allowed']) {
+        throw new Exception($limitResult['message']);
     }
     
     // Check for pending advances

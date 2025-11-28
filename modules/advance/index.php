@@ -237,7 +237,7 @@ $advances = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 <div class="mb-1"><strong>Max Limit (33%):</strong> <span id="advanceDisplayMaxLimit">-</span></div>
                             </div>
                             <div class="col-md-6">
-                                <div class="mb-1"><strong>Current Outstanding:</strong> <span id="advanceDisplayOutstanding">-</span></div>
+                                <div class="mb-1"><strong>Monthly Loan Repayment:</strong> <span id="advanceDisplayOutstanding">-</span></div>
                                 <div class="mb-1"><strong class="text-success">Available Amount:</strong> <span id="advanceDisplayAvailable" class="text-success fw-bold">-</span></div>
                             </div>
                         </div>
