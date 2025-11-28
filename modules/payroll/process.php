@@ -34,6 +34,15 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['perio
                     WHERE pm.period_id = ?
                 ");
                 $stmt->execute([$period_id]);
+
+                // Reset occasional payments linked to this period's payrolls
+                $stmt = $db->prepare("
+                    UPDATE employee_occasional_payments eop
+                    JOIN payroll_master pm ON eop.payroll_id = pm.payroll_id
+                    SET eop.status = 'pending', eop.payroll_id = NULL
+                    WHERE pm.period_id = ?
+                ");
+                $stmt->execute([$period_id]);
                 
                 // Then delete the payroll master records
                 $stmt = $db->prepare("DELETE FROM payroll_master WHERE period_id = ?");
@@ -210,6 +219,13 @@ function processPayroll($db, $period_id) {
             $existingRecord = array_filter($existingPayroll, function ($record) use ($employee_id) {
                 return $record['employee_id'] == $employee_id;
             });
+
+            if ($existingRecord) {
+                $existingPayrollId = current($existingRecord)['payroll_id'];
+                // Reset occasional payments linked to this payroll so they can be re-calculated
+                $stmt = $db->prepare("UPDATE employee_occasional_payments SET status = 'pending', payroll_id = NULL WHERE payroll_id = ?");
+                $stmt->execute([$existingPayrollId]);
+            }
 
             // Calculate salary data
             $salary_data = calculateGrossSalaryFromDB($db, $employee_id);

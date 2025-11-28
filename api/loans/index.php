@@ -126,28 +126,24 @@ function applyForLoan($db, $auth) {
         $loan_amount = floatval($input['loan_amount']);
         $tenure_months = intval($input['tenure_months']);
         
-        if ($tenure_months <= 0 || $loan_amount <= 0) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Loan amount and tenure must be positive']);
-            return;
-        }
+        $monthly_repayment = round($loan_amount / $tenure_months, 2);
+        $total_repayable = $loan_amount;
 
-        // Check borrowing limit
+        // Check borrowing limit: Monthly repayment cannot exceed the available advance limit
         require_once '../../includes/LoanManager.php';
         $loanManager = new LoanManager($db);
-        $limitCheck = $loanManager->checkBorrowingLimit($input['employee_id'], $loan_amount);
+        $limitCheck = $loanManager->checkAdvanceBorrowingLimit($input['employee_id'], $monthly_repayment);
 
         if (!$limitCheck['allowed']) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'message' => $limitCheck['message']]);
+            $available = number_format($limitCheck['available_amount'], 2);
+            $repayment = number_format($monthly_repayment, 2);
+            echo json_encode([
+                'success' => false, 
+                'message' => "Loan rejected: Monthly repayment (₦$repayment) exceeds the available advance limit (₦$available) for the next month."
+            ]);
             return;
         }
-
-        $monthly_repayment = round($loan_amount / $tenure_months, 2);
-        $total_repayable = round($monthly_repayment * $tenure_months, 2);
-        // Recalculate to avoid floating point drift
-        $total_repayable = $loan_amount; // since no interest
-        $monthly_repayment = round($loan_amount / $tenure_months, 2);
 
         // Insert loan application with 0% interest
         $stmt = $db->prepare("INSERT INTO employee_loans 
