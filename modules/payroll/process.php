@@ -246,6 +246,7 @@ function processPayroll($db, $period_id) {
             }
 
             $gross_salary = $basic_salary + $total_allowances + $occasional_total + $thirteenthMonth;
+            $pensionable_gross = $basic_salary + $total_allowances; // Pension is only on regular salary
             $total_earnings = $gross_salary;
 
             if ($gross_salary <= 0) {
@@ -253,7 +254,7 @@ function processPayroll($db, $period_id) {
             }
 
             // Get deductions including loans and advances
-            $deductions = getDeductions($db, $employee_id, $gross_salary, $period['start_date'], $period['end_date']);
+            $deductions = getDeductions($db, $employee_id, $gross_salary, $period['start_date'], $period['end_date'], $pensionable_gross);
             $total_deductions = $deductions['total'];
             $net_salary = $total_earnings - $total_deductions;
 
@@ -941,11 +942,14 @@ function recordLoanAndAdvanceRepayments($db, $payroll_id, $employee_id, $period_
 /**
  * Get all deductions including loans and advances
  */
-function getDeductions($db, $employee_id, $gross_salary, $period_start = null, $period_end = null) {
+function getDeductions($db, $employee_id, $gross_salary, $period_start = null, $period_end = null, $pensionable_gross = null) {
     // Default to current month if dates not provided
     $period_start = $period_start ?: date('Y-m-01');
     $period_end = $period_end ?: date('Y-m-t');
     
+    // If pensionable_gross is not provided, default to gross_salary (backward compatibility)
+    $pensionable_gross = $pensionable_gross ?? $gross_salary;
+
     // First check if employee is monthly paid
     $stmt = $db->prepare("
         SELECT et.type_name 
@@ -979,14 +983,15 @@ function getDeductions($db, $employee_id, $gross_salary, $period_start = null, $
         'components' => []
     ];
     
-    // For monthly paid employees, calculate standard deductions
-    $basic_monthly = $gross_salary * 0.6665;
-    $housing = $gross_salary * 0.1875;
-    $transport = $gross_salary * 0.08;
+    // For monthly paid employees, calculate standard deductions based on PENSIONABLE GROSS
+    $basic_monthly = $pensionable_gross * 0.6665;
+    $housing = $pensionable_gross * 0.1875;
+    $transport = $pensionable_gross * 0.08;
     $pension_basis = $basic_monthly + $housing + $transport;
     $pension = round($pension_basis * 0.08, 2);
     
-    $paye = calculatePayrollPAYE($gross_salary);
+    // Calculate PAYE using Total Gross for tax, but Pensionable Gross for relief
+    $paye = calculatePayrollPAYE($gross_salary, $pensionable_gross);
     
     // Get loan and advance deductions
     $loan_advance_deductions = getLoanAndAdvanceDeductions($db, $employee_id, $period_start, $period_end, $gross_salary);
@@ -1037,14 +1042,17 @@ function getDeductions($db, $employee_id, $gross_salary, $period_start = null, $
 /**
  * Calculate PAYE tax based on Nigerian tax brackets for payroll processing
  */
-function calculatePayrollPAYE($monthly_gross) {
+function calculatePayrollPAYE($monthly_gross, $pensionable_gross = null) {
     $MONTHS_IN_YEAR = 12;
     $annual_gross = $monthly_gross * $MONTHS_IN_YEAR;
     
-    // 1. Calculate pension (8% of Basic + Housing + Transport)
-    $basic_monthly = $monthly_gross * 0.6665;
-    $housing = $monthly_gross * 0.1875;
-    $transport = $monthly_gross * 0.08;
+    // Use pensionable_gross if provided, otherwise default to monthly_gross
+    $pension_calc_amount = $pensionable_gross ?? $monthly_gross;
+
+    // 1. Calculate pension (8% of Basic + Housing + Transport) based on PENSIONABLE amount
+    $basic_monthly = $pension_calc_amount * 0.6665;
+    $housing = $pension_calc_amount * 0.1875;
+    $transport = $pension_calc_amount * 0.08;
     $pension_basis = $basic_monthly + $housing + $transport;
     $pensionEmployeeMonthly = $pension_basis * 0.08;
     $pension_annual = $pensionEmployeeMonthly * $MONTHS_IN_YEAR;
