@@ -124,9 +124,14 @@ include '../../includes/header.php';
         <h1 class="h3 mb-0 text-gray-800">Occasional Taxable Payments</h1>
         <p class="text-muted mb-0">Capture once-off taxable earnings (bonus, incentive, commissions) that apply to a specific payroll month.</p>
     </div>
-    <a href="index.php" class="btn btn-secondary">
-        <i class="fas fa-arrow-left me-2"></i>Back to Payroll
-    </a>
+    <div>
+        <a href="manage_payment_titles.php" class="btn btn-info me-2">
+            <i class="fas fa-cog me-2"></i>Manage Titles
+        </a>
+        <a href="index.php" class="btn btn-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Payroll
+        </a>
+    </div>
 </div>
 
 <?php echo $message; ?>
@@ -154,8 +159,26 @@ include '../../includes/header.php';
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Payment Title *</label>
-                                <input type="text" name="payments[0][title]" class="form-control" placeholder="e.g. Performance Bonus" required>
+                                <select name="payments[0][title]" class="form-control" required>
+                                    <option value="" disabled selected>Select a payment type</option>
+                                    <?php
+                                    // Fetch payment titles from database
+                                    try {
+                                        $titleStmt = $db->query("SELECT title FROM payment_titles ORDER BY title ASC");
+                                        while ($row = $titleStmt->fetch(PDO::FETCH_ASSOC)) {
+                                            echo '<option value="' . htmlspecialchars($row['title']) . '">' . htmlspecialchars($row['title']) . '</option>';
+                                        }
+                                    } catch (PDOException $e) {
+                                        // Fallback if table doesn't exist yet
+                                        echo '<option value="Performance Bonus">Performance Bonus</option>';
+                                        echo '<option value="Incentive">Incentive</option>';
+                                        echo '<option value="Commission">Commission</option>';
+                                        echo '<option value="Reimbursement">Reimbursement</option>';
+                                    }
+                                    ?>
+                                </select>
                             </div>
+
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">Amount (NGN) *</label>

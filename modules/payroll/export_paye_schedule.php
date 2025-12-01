@@ -38,8 +38,15 @@ try {
             COALESCE(SUM(CASE WHEN sc.component_code = 'MEAL' OR sc.component_name LIKE '%Meal%' OR sc.component_name LIKE '%Lunch%' THEN pd.amount ELSE 0 END), 0) as lunch,
             0 as passage,
             0 as leave_pay,
-            0 as bonus,
-            0 as thirteenth_month,
+            -- Bonus (Occasional payments except 13th month)
+            COALESCE(SUM(CASE 
+                WHEN (sc.component_code = 'OTP' OR sc.component_name LIKE '%Bonus%' OR sc.component_name LIKE '%Incentive%' OR sc.component_name LIKE '%Commission%')
+                AND sc.component_code != '13TH_BONUS' 
+                AND sc.component_name NOT LIKE '%13th Month%'
+                THEN pd.amount 
+                ELSE 0 
+            END), 0) as bonus,
+            COALESCE(SUM(CASE WHEN sc.component_code = '13TH_BONUS' OR sc.component_name LIKE '%13th Month%' THEN pd.amount ELSE 0 END), 0) as thirteenth_month,
             -- Utility
             COALESCE(SUM(CASE WHEN sc.component_code = 'UTIL' OR sc.component_name LIKE '%Utility%' THEN pd.amount ELSE 0 END), 0) as utility,
             -- Other allowances (sum of all other earning components not already included)
@@ -65,7 +72,12 @@ try {
             -- Gross Income (from payroll_master)
             pm.gross_salary as gross_income,
             -- PAYE Tax
-            COALESCE(SUM(CASE WHEN sc.component_code = 'PAYE' OR sc.component_name LIKE '%PAYE%' OR sc.component_name LIKE '%Tax%' THEN pd.amount ELSE 0 END), 0) as tax_payable
+            COALESCE(SUM(CASE 
+                WHEN sc.component_type = 'deduction' 
+                AND (sc.component_code = 'PAYE' OR sc.component_name = 'PAYE Tax') 
+                THEN pd.amount 
+                ELSE 0 
+            END), 0) as tax_payable
         FROM payroll_master pm
         JOIN employees e ON pm.employee_id = e.employee_id
         LEFT JOIN departments d ON e.department_id = d.department_id

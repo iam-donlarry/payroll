@@ -238,10 +238,12 @@ function processPayroll($db, $period_id) {
             $occasionalPaymentIds = array_column($occasionalPayments, 'payment_id');
             $occasional_total = array_sum(array_column($occasionalPayments, 'amount'));
 
-            // Determine 13th month eligibility (December only)
+            // Determine 13th month eligibility (December only, Monthly Paid staff only)
             $isDecember = date('m', strtotime($period['end_date'])) === '12';
+            $isMonthlyPaid = strtolower($emp['type_name'] ?? '') === 'monthly paid';
+            
             $thirteenthMonth = 0;
-            if ($isDecember) {
+            if ($isDecember && $isMonthlyPaid) {
                 $thirteenthMonth = calculateThirteenthMonth($basic_salary, $emp['employment_date'], $period['end_date']);
             }
 
